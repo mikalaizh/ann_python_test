@@ -28,13 +28,13 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
     """Clean the raw heart-disease dataset and add readable diagnosis fields."""
     data = df.copy()
 
-    # The original dataset uses short UCI-style names, which are annoying to work with later.
+    # Rename short source columns.
     data = data.rename(columns=COLUMN_RENAME_MAP)
 
-    # Some versions of the dataset use "?" for missing values.
+    # Convert "?" to missing.
     data = data.replace("?", pd.NA)
 
-    # These columns should be numeric, even if some values arrive as text.
+    # Force numeric columns.
     columns_to_convert = [
         "age",
         "sex",
@@ -56,24 +56,16 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         if column in data.columns:
             data[column] = pd.to_numeric(data[column], errors="coerce")
 
-    # Remove rows that are too incomplete to be useful in filtering and analysis.
+    # Drop rows with too many missing values.
     data = data[data.isna().sum(axis=1) <= 5].copy()
 
-    # Blood pressure is used in the main analysis, so rows missing it are dropped.
+    # Drop rows missing blood pressure.
     data = data.dropna(subset=["resting_blood_pressure"]).copy()
 
-    # Fill missing numeric feature values with the median.
-    # I leave the diagnosis alone for now because target rows should not be guessed.
-    feature_columns = [col for col in data.columns if col != "diagnosis_raw"]
-    numeric_feature_columns = data[feature_columns].select_dtypes(include="number").columns
-
-    for column in numeric_feature_columns:
-        data[column] = data[column].fillna(data[column].median())
-
-    # Rows without diagnosis are not useful for group comparison later.
+    # Drop rows missing diagnosis.
     data = data.dropna(subset=["diagnosis_raw"]).copy()
 
-    # Keep both raw severity and a simplified binary target.
+    # Keep raw and binary targets.
     data["has_disease"] = (data["diagnosis_raw"] > 0).astype(int)
     data["diagnosis_label"] = data["has_disease"].map({
         0: "no disease",
@@ -87,7 +79,7 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         4: "severity 4 (very high)",
     })
 
-    # Add readable labels for coded columns so the app and exported reports are easier to understand.
+    # Add readable labels.
     data["sex_label"] = data["sex"].map({
         0: "female",
         1: "male",
