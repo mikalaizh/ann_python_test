@@ -1,4 +1,6 @@
 import argparse
+import re
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -6,6 +8,8 @@ import pandas as pd
 
 DEFAULT_INPUT = Path("input/processed.switzerland.data source.csv")
 DEFAULT_OUTPUT = Path("input/processed.switzerland.data cleaned_step1.csv")
+DEFAULT_DB = Path("input/heart_disease_analysis.db")
+DEFAULT_TABLE = "heart_disease_cleaned"
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -140,7 +144,50 @@ def get_cli_args() -> argparse.Namespace:
         default=DEFAULT_OUTPUT,
         help="Path where the cleaned CSV should be saved",
     )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB,
+        help="Path to the SQLite database file",
+    )
+    parser.add_argument(
+        "--table",
+        default=DEFAULT_TABLE,
+        help="Table name to create/load in the SQLite database",
+    )
+    parser.add_argument(
+        "--skip-db",
+        action="store_true",
+        help="Skip loading the cleaned data into SQLite",
+    )
     return parser.parse_args()
+
+
+def validate_table_name(table_name: str) -> str:
+    """Allow only simple SQL identifiers for destination table names."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
+        raise ValueError(
+            "Invalid table name. Use letters, numbers, and underscores only, "
+            "starting with a letter or underscore."
+        )
+    return table_name
+
+
+def write_dataframe_to_sqlite(df: pd.DataFrame, db_path: Path, table_name: str) -> int:
+    """Create/replace the destination table and insert all rows."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(db_path) as conn:
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
+        row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+
+    return row_count
+
+
+def read_dataframe_from_sqlite(db_path: Path, table_name: str) -> pd.DataFrame:
+    """Read data back from SQLite so analysis can continue from the DB table."""
+    with sqlite3.connect(db_path) as conn:
+        return pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
 
 
 def run_cleaning_step() -> None:
@@ -155,6 +202,18 @@ def run_cleaning_step() -> None:
     print(f"Source rows loaded: {len(source_df)}")
     print(f"Rows after cleaning: {len(cleaned_df)}")
     print(f"Cleaned file saved to: {args.output}")
+
+    if args.skip_db:
+        print("Skipped SQLite load step (--skip-db).")
+        return
+
+    table_name = validate_table_name(args.table)
+    inserted_rows = write_dataframe_to_sqlite(cleaned_df, args.db, table_name)
+    reloaded_df = read_dataframe_from_sqlite(args.db, table_name)
+
+    print(f"Rows inserted into table '{table_name}': {inserted_rows}")
+    print(f"Rows reloaded from database: {len(reloaded_df)}")
+    print(f"SQLite database saved to: {args.db}")
 
 
 if __name__ == "__main__":
