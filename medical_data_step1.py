@@ -1,4 +1,5 @@
 import argparse
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -6,6 +7,8 @@ import pandas as pd
 
 DEFAULT_INPUT = Path("input/processed.switzerland.data source.csv")
 DEFAULT_OUTPUT = Path("input/processed.switzerland.data cleaned_step1.csv")
+DEFAULT_DB = Path("input/heart_disease_analysis.db")
+DEFAULT_TABLE = "switzerland_cleaned_step1"
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -140,7 +143,32 @@ def get_cli_args() -> argparse.Namespace:
         default=DEFAULT_OUTPUT,
         help="Path where the cleaned CSV should be saved",
     )
+    parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=DEFAULT_DB,
+        help="SQLite database path",
+    )
+    parser.add_argument(
+        "--table-name",
+        type=str,
+        default=DEFAULT_TABLE,
+        help="Table name for cleaned data",
+    )
     return parser.parse_args()
+
+
+def load_dataframe_to_sqlite(df: pd.DataFrame, db_path: Path, table_name: str) -> None:
+    """Connect to SQLite and load the cleaned dataframe into a table."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        df.to_sql(table_name, connection, if_exists="replace", index=False)
+
+
+def read_back_sqlite_table(db_path: Path, table_name: str) -> pd.DataFrame:
+    """Reconnect to SQLite and read the table back for analysis."""
+    with sqlite3.connect(db_path) as connection:
+        return pd.read_sql_query(f"SELECT * FROM {table_name}", connection)
 
 
 def run_cleaning_step() -> None:
@@ -152,9 +180,15 @@ def run_cleaning_step() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     cleaned_df.to_csv(args.output, sep=";", index=False)
 
+    load_dataframe_to_sqlite(cleaned_df, args.db_path, args.table_name)
+    analysis_df = read_back_sqlite_table(args.db_path, args.table_name)
+
     print(f"Source rows loaded: {len(source_df)}")
     print(f"Rows after cleaning: {len(cleaned_df)}")
     print(f"Cleaned file saved to: {args.output}")
+    print(f"Cleaned data loaded to table: {args.table_name}")
+    print(f"Database path: {args.db_path}")
+    print(f"Rows available for analysis from DB: {len(analysis_df)}")
 
 
 if __name__ == "__main__":
