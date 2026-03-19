@@ -1,0 +1,128 @@
+﻿age;sex;chest_pain;trestbps;cholestoral;fasting_blood_sugar ;restecg;maximum_heart_rate;exercise_induced_angina;oldpeak;slope;ca;thal;num
+32;male;typical angina;95;0;?;normal;127;no;.7;upsloping;?;?;1
+36;male;asymptomatic;110;0;?;normal;125;yes;1;flat;?;fixed defect;1
+38;female;asymptomatic;105;0;?;normal;166;no;2.8;upsloping;?;?;2
+38;female;asymptomatic;110;0;FALSE;normal;156;no;0;flat;?;normal;1
+38;male;non-anginal pain;100;0;?;normal;179;no;-1.1;upsloping;?;?;no disease
+38;male;non-anginal pain;115;0;FALSE;normal;128;yes;0;flat;?;reversable defect;1
+38;male;asymptomatic;135;0;?;normal;150;no;0;?;?;normal;2
+38;male;asymptomatic;150;0;?;normal;120;yes;?;?;?;normal;1
+40;male;asymptomatic;95;0;?;having ST-T wave abnormality;144;no;0;upsloping;?;?;2
+41;male;asymptomatic;125;0;?;normal;176;no;1.6;upsloping;?;?;2
+42;male;asymptomatic;105;0;?;normal;128;yes;-1.5;downsloping;?;?;1
+42;male;asymptomatic;145;0;FALSE;normal;99;yes;0;flat;?;?;2
+43;male;asymptomatic;100;0;?;normal;122;no;1.5;downsloping;?;?;3
+43;male;asymptomatic;115;0;FALSE;normal;145;yes;2;flat;?;reversable defect;4
+43;male;asymptomatic;140;0;FALSE;having ST-T wave abnormality;140;yes;.5;upsloping;?;reversable defect;2
+45;male;non-anginal pain;110;0;?;normal;138;no;-.1;upsloping;?;?;no disease
+46;male;asymptomatic;100;0;?;having ST-T wave abnormality;133;no;-2.6;flat;?;?;1
+46;male;asymptomatic;115;0;FALSE;normal;113;yes;1.5;flat;?;reversable defect;1
+47;male;non-anginal pain;110;0;?;normal;120;yes;0;?;?;normal;1
+47;male;non-anginal pain;155;0;FALSE;normal;118;yes;1;flat;?;normal;3
+47;male;asymptomatic;110;0;?;having ST-T wave abnormality;149;no;2.1;upsloping;?;?;2
+47;male;asymptomatic;160;0;FALSE;normal;124;yes;0;flat;?;reversable defect;1
+48;male;asymptomatic;115;0;?;normal;128;no;0;flat;?;fixed defect;2
+50;female;asymptomatic;160;0;?;normal;110;no;0;?;?;normal;1
+50;male;asymptomatic;115;0;FALSE;normal;120;yes;.5;flat;?;fixed defect;3
+50;male;asymptomatic;120;0;FALSE;having ST-T wave abnormality;156;yes;0;upsloping;?;fixed defect;3
+50;male;asymptomatic;145;0;?;normal;139;yes;.7;flat;?;?;1
+51;female;asymptomatic;120;0;?;normal;127;yes;1.5;upsloping;?;?;2
+51;male;asymptomatic;110;0;?;normal;92;no;0;flat;?;?;4
+51;male;asymptomatic;120;0;TRUE;normal;104;no;0;flat;?;normal;3
+51;male;asymptomatic;130;0;?;normal;170;no;-.7;upsloping;?;?;2
+51;male;asymptomatic;130;0;?;having ST-T wave abnormality;163;no;0;?;?;reversable defect;1
+51;male;asymptomatic;140;0;FALSE;normal;60;no;0;flat;?;normal;2
+51;male;asymptomatic;95;0;?;normal;126;no;2.2;flat;?;?;2
+52;male;asymptomatic;130;0;?;normal;120;no;0;flat;?;reversable defect;2
+52;male;asymptomatic;135;0;?;normal;128;yes;2;flat;?;reversable defect;2
+52;male;asymptomatic;165;0;?;normal;122;yes;1;upsloping;?;reversable defect;2
+52;male;asymptomatic;95;0;?;normal;82;yes;?;?;?;?;2
+53;male;atypical angina;120;0;FALSE;normal;95;no;0;flat;?;normal;3
+53;male;atypical angina;130;0;?;having ST-T wave abnormality;120;no;.7;downsloping;?;?;no disease
+53;male;non-anginal pain;105;0;FALSE;normal;115;no;0;flat;?;reversable defect;1
+53;male;non-anginal pain;160;0;?;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";122;yes;0;?;?;reversable defect;1
+53;male;asymptomatic;120;0;?;normal;120;no;0;flat;?;reversable defect;1
+53;male;asymptomatic;125;0;?;normal;120;no;1.5;upsloping;?;?;4
+53;male;asymptomatic;130;0;FALSE;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";135;yes;1;flat;?;reversable defect;2
+53;male;asymptomatic;80;0;?;normal;141;yes;2;downsloping;?;?;no disease
+54;male;asymptomatic;120;0;FALSE;normal;155;no;0;flat;?;reversable defect;2
+54;male;asymptomatic;130;0;?;normal;110;yes;3;flat;?;reversable defect;3
+54;male;asymptomatic;180;0;?;normal;150;no;1.5;flat;?;reversable defect;1
+55;male;atypical angina;140;0;?;having ST-T wave abnormality;150;no;.2;upsloping;?;?;no disease
+55;male;asymptomatic;115;0;?;normal;155;no;.1;flat;?;?;1
+55;male;asymptomatic;120;0;FALSE;having ST-T wave abnormality;92;no;.3;upsloping;?;reversable defect;4
+55;male;asymptomatic;140;0;FALSE;normal;83;no;0;flat;?;reversable defect;2
+56;male;non-anginal pain;120;0;FALSE;normal;97;no;0;flat;?;reversable defect;no disease
+56;male;non-anginal pain;125;0;?;normal;98;no;-2;flat;?;reversable defect;2
+56;male;non-anginal pain;155;0;FALSE;having ST-T wave abnormality;99;no;0;flat;?;normal;2
+56;male;asymptomatic;115;0;?;having ST-T wave abnormality;82;no;-1;upsloping;?;?;1
+56;male;asymptomatic;120;0;FALSE;having ST-T wave abnormality;100;yes;-1;downsloping;?;reversable defect;2
+56;male;asymptomatic;120;0;FALSE;having ST-T wave abnormality;148;no;0;flat;?;?;2
+56;male;asymptomatic;125;0;TRUE;normal;103;yes;1;flat;?;reversable defect;3
+56;male;asymptomatic;140;0;?;normal;121;yes;1.8;upsloping;?;?;1
+57;male;non-anginal pain;105;0;?;normal;148;no;.3;flat;?;?;1
+57;male;asymptomatic;110;0;?;having ST-T wave abnormality;131;yes;1.4;upsloping;1;?;3
+57;male;asymptomatic;140;0;FALSE;normal;120;yes;2;flat;?;fixed defect;2
+57;male;asymptomatic;140;0;?;normal;100;yes;0;?;?;fixed defect;3
+57;male;asymptomatic;160;0;?;normal;98;yes;2;flat;?;reversable defect;2
+57;male;asymptomatic;95;0;?;normal;182;no;.7;downsloping;?;?;1
+58;male;asymptomatic;115;0;?;normal;138;no;.5;upsloping;?;?;1
+58;male;asymptomatic;130;0;FALSE;having ST-T wave abnormality;100;yes;1;flat;?;fixed defect;4
+58;male;asymptomatic;170;0;?;having ST-T wave abnormality;105;yes;0;?;?;normal;1
+59;male;non-anginal pain;125;0;?;normal;175;no;2.6;flat;?;?;1
+59;male;asymptomatic;110;0;?;normal;94;no;0;?;?;fixed defect;3
+59;male;asymptomatic;120;0;FALSE;normal;115;no;0;flat;?;normal;2
+59;male;asymptomatic;125;0;?;normal;119;yes;.9;upsloping;?;?;1
+59;male;asymptomatic;135;0;FALSE;normal;115;yes;1;flat;?;reversable defect;1
+60;male;non-anginal pain;115;0;?;normal;143;no;2.4;upsloping;?;?;1
+60;male;asymptomatic;125;0;?;normal;110;no;.1;upsloping;2;?;3
+60;male;asymptomatic;130;0;?;having ST-T wave abnormality;130;yes;1.1;downsloping;1;?;1
+60;male;asymptomatic;135;0;FALSE;normal;63;yes;.5;upsloping;?;reversable defect;3
+60;male;asymptomatic;160;0;FALSE;having ST-T wave abnormality;99;yes;.5;flat;?;reversable defect;3
+60;male;asymptomatic;160;0;?;normal;149;no;.4;flat;?;?;1
+61;male;non-anginal pain;200;0;?;having ST-T wave abnormality;70;no;0;?;?;normal;3
+61;male;asymptomatic;105;0;?;normal;110;yes;1.5;upsloping;?;?;1
+61;male;asymptomatic;110;0;?;normal;113;no;1.4;flat;?;?;1
+61;male;asymptomatic;125;0;FALSE;normal;105;yes;0;downsloping;?;reversable defect;3
+61;male;asymptomatic;130;0;FALSE;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";115;no;0;flat;?;reversable defect;3
+61;male;asymptomatic;130;0;?;normal;77;no;2.5;flat;?;?;3
+61;male;asymptomatic;150;0;FALSE;normal;105;yes;0;flat;?;reversable defect;1
+61;male;asymptomatic;150;0;FALSE;normal;117;yes;2;flat;?;reversable defect;2
+61;male;asymptomatic;160;0;TRUE;having ST-T wave abnormality;145;no;1;flat;?;reversable defect;2
+62;female;typical angina;140;0;?;normal;143;no;0;?;?;normal;2
+62;female;asymptomatic;120;0;?;having ST-T wave abnormality;123;yes;1.7;downsloping;?;?;1
+62;male;typical angina;120;0;?;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";134;no;-.8;flat;2;?;1
+62;male;non-anginal pain;160;0;FALSE;normal;72;yes;0;flat;?;normal;3
+62;male;asymptomatic;115;0;?;normal;128;yes;2.5;downsloping;?;?;2
+62;male;asymptomatic;115;0;?;normal;72;yes;-.5;flat;?;normal;1
+62;male;asymptomatic;150;0;?;having ST-T wave abnormality;78;no;2;flat;?;reversable defect;3
+63;male;asymptomatic;100;0;?;normal;109;no;-.9;flat;?;?;1
+63;male;asymptomatic;140;0;?;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";149;no;2;upsloping;?;?;2
+63;male;asymptomatic;150;0;FALSE;normal;86;yes;2;flat;?;?;3
+63;male;asymptomatic;150;0;?;having ST-T wave abnormality;154;no;3.7;upsloping;?;?;3
+63;male;asymptomatic;185;0;FALSE;normal;98;yes;0;upsloping;?;reversable defect;1
+64;female;asymptomatic;200;0;FALSE;normal;140;yes;1;flat;?;normal;3
+64;female;asymptomatic;95;0;?;normal;145;no;1.1;downsloping;?;?;1
+64;male;asymptomatic;110;0;?;normal;114;yes;1.3;downsloping;?;?;1
+65;male;asymptomatic;115;0;FALSE;normal;93;yes;0;flat;?;reversable defect;1
+65;male;asymptomatic;145;0;?;having ST-T wave abnormality;67;no;?;?;?;fixed defect;3
+65;male;asymptomatic;155;0;?;normal;154;no;1;upsloping;?;?;no disease
+65;male;asymptomatic;160;0;TRUE;having ST-T wave abnormality;122;no;?;?;?;reversable defect;3
+66;female;asymptomatic;155;0;?;normal;90;no;0;?;?;reversable defect;1
+66;male;asymptomatic;150;0;FALSE;normal;108;yes;2;flat;?;reversable defect;3
+67;male;typical angina;145;0;FALSE;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";125;no;0;flat;?;normal;2
+68;male;asymptomatic;135;0;FALSE;having ST-T wave abnormality;120;yes;0;upsloping;?;reversable defect;3
+68;male;asymptomatic;145;0;?;normal;136;no;1.8;upsloping;?;?;1
+69;male;asymptomatic;135;0;FALSE;normal;130;no;0;flat;?;fixed defect;1
+70;male;asymptomatic;115;0;FALSE;having ST-T wave abnormality;92;yes;0;flat;?;reversable defect;1
+70;male;asymptomatic;140;0;TRUE;normal;157;yes;2;flat;?;reversable defect;3
+72;male;non-anginal pain;160;0;?;"howing probable or definite left ventricular hypertrophy
+                    by Estes'";114;no;1.6;flat;2;?;no disease
+73;female;non-anginal pain;160;0;FALSE;having ST-T wave abnormality;121;no;0;upsloping;?;normal;1
+74;male;atypical angina;145;0;?;having ST-T wave abnormality;123;no;1.3;upsloping;?;?;1
