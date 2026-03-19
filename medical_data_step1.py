@@ -4,9 +4,11 @@ What this script does:
 1. Loads the raw CSV file with pandas.
 2. Renames columns to readable names.
 3. Replaces missing markers ('?') and handles missing values.
-4. Makes the target variable understandable:
-   - 0 -> "no disease"
-   - >0 -> "disease"
+4. Adds understandable labels for coded columns (instead of only 0/1).
+5. Adds disease-severity labels for target values 0-4.
+6. Cleans rows with excessive missingness:
+   - drop a row if it has more than 5 missing values
+   - drop a row if `trestbps` is missing
 
 Usage:
     python medical_data_step1.py
@@ -75,6 +77,12 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     for col in numeric_columns:
         data[col] = pd.to_numeric(data[col], errors="coerce")
 
+    # Row-level cleaning rules:
+    # - remove rows with more than 5 missing values
+    # - remove rows where resting blood pressure is missing
+    data = data[data.isna().sum(axis=1) <= 5]
+    data = data.dropna(subset=["resting_blood_pressure"]).copy()
+
     # Basic missing-value handling.
     # - Numeric features: fill with median.
     # - Target: rows without target are removed.
@@ -85,14 +93,33 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     data = data.dropna(subset=["heart_disease_raw"]).copy()
 
-    # Make target understandable: binary + label.
+    # Make target understandable: binary + severity label.
     data["heart_disease_binary"] = (data["heart_disease_raw"] > 0).astype(int)
     data["heart_disease_label"] = data["heart_disease_binary"].map(
         {0: "no disease", 1: "disease"}
     )
+    data["heart_disease_severity_label"] = data["heart_disease_raw"].map(
+        {
+            0: "no disease",
+            1: "severity 1 (mild)",
+            2: "severity 2 (moderate)",
+            3: "severity 3 (high)",
+            4: "severity 4 (very high)",
+        }
+    )
 
-    # Optional readability mappings for core categorical fields.
+    # Readability mappings for coded categorical fields.
     data["sex_label"] = data["sex"].map({0: "female", 1: "male"})
+    data["fasting_blood_sugar_label"] = data["fasting_blood_sugar_over_120"].map(
+        {0: "<= 120 mg/dl", 1: "> 120 mg/dl"}
+    )
+    data["resting_ecg_label"] = data["resting_ecg_result"].map(
+        {
+            0: "normal",
+            1: "ST-T wave abnormality",
+            2: "left ventricular hypertrophy",
+        }
+    )
     data["exercise_induced_angina_label"] = data["exercise_induced_angina"].map(
         {0: "no", 1: "yes"}
     )
@@ -104,6 +131,12 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
         4: "asymptomatic",
     }
     data["chest_pain_label"] = data["chest_pain_type"].map(cp_map)
+    data["slope_label"] = data["slope"].map(
+        {1: "upsloping", 2: "flat", 3: "downsloping"}
+    )
+    data["thal_label"] = data["thal"].map(
+        {3: "normal", 6: "fixed defect", 7: "reversible defect"}
+    )
 
     return data
 
