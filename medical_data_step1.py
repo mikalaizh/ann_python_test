@@ -66,11 +66,8 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
     # Drop rows with too many missing values.
     data = data[data.isna().sum(axis=1) <= 5].copy()
 
-    # Drop rows missing blood pressure.
-    data = data.dropna(subset=["resting_blood_pressure"]).copy()
-
-    # Drop rows missing diagnosis.
-    data = data.dropna(subset=["diagnosis_raw"]).copy()
+    # Drop rows missing mandatory fields for analysis.
+    data = data.dropna(subset=["resting_blood_pressure", "diagnosis_raw", "age", "max_heart_rate", "oldpeak"]).copy()
 
     # Keep raw and binary targets.
     data["has_disease"] = (data["diagnosis_raw"] > 0).astype(int)
@@ -82,8 +79,8 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         0: "no disease",
         1: "severity 1 (mild)",
         2: "severity 2 (moderate)",
-        3: "severity 3 (high)",
-        4: "severity 4 (very high)",
+        3: "severity 3 (serious)",
+        4: "severity 4 (critical)",
     })
 
     # Add readable labels.
@@ -128,7 +125,190 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         7: "reversible defect",
     })
 
+    # Analysis-friendly aliases requested by app logic.
+    data["chest_pain"] = data["chest_pain_label"]
+    data["trestbps"] = data["resting_blood_pressure"]
+    data["restecg"] = data["resting_ecg_label"]
+    data["maximum_heart_rate"] = data["max_heart_rate"]
+    data["diagnosis"] = data["severity_label"]
+
+    # Derived analysis fields.
+    data["diagnosis_binary"] = data["diagnosis"].apply(
+        lambda x: "disease" if x != "no disease" else "no disease"
+    )
+    data["age_group"] = pd.cut(
+        data["age"],
+        bins=[0, 44, 54, 64, 120],
+        labels=["<45", "45-54", "55-64", "65+"],
+    )
+    severity_map = {
+        "no disease": 0,
+        "severity 1 (mild)": 1,
+        "severity 2 (moderate)": 2,
+        "severity 3 (serious)": 3,
+        "severity 4 (critical)": 4,
+    }
+    data["severity_code"] = data["diagnosis"].map(severity_map)
+
     return data
+
+
+def apply_analysis_filters(
+    df: pd.DataFrame,
+    sex: str | None = None,
+    age_group: str | None = None,
+    chest_pain: str | None = None,
+    diagnosis_binary: str | None = None,
+) -> pd.DataFrame:
+    """Apply optional filters before computing analysis outputs."""
+    filtered = df.copy()
+    filters = {
+        "sex_label": sex,
+        "age_group": age_group,
+        "chest_pain": chest_pain,
+        "diagnosis_binary": diagnosis_binary,
+    }
+    for column, value in filters.items():
+        if value is not None:
+            filtered = filtered[filtered[column] == value]
+    return filtered
+
+
+def basic_statistics(df: pd.DataFrame) -> dict[str, object]:
+    """General characteristics of the dataset."""
+    return {
+        "number_of_patients": int(len(df)),
+        "average_age": round(float(df["age"].mean()), 2),
+        "median_age": round(float(df["age"].median()), 2),
+        "average_resting_blood_pressure": round(float(df["trestbps"].mean()), 2),
+        "average_maximum_heart_rate": round(float(df["maximum_heart_rate"].mean()), 2),
+        "average_oldpeak": round(float(df["oldpeak"].mean()), 2),
+        "count_by_sex": df["sex_label"].value_counts(dropna=False).to_dict(),
+        "count_by_chest_pain_type": df["chest_pain"].value_counts(dropna=False).to_dict(),
+        "count_by_diagnosis": df["diagnosis"].value_counts(dropna=False).to_dict(),
+        "count_by_exercise_induced_angina": df["exercise_induced_angina_label"].value_counts(dropna=False).to_dict(),
+    }
+
+
+def diagnosis_distribution_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Multiclass and binary diagnosis summaries."""
+    multiclass = (
+        df.groupby("diagnosis", dropna=False)
+        .agg(
+            patient_count=("diagnosis", "size"),
+            average_age=("age", "mean"),
+            average_trestbps=("trestbps", "mean"),
+            average_maximum_heart_rate=("maximum_heart_rate", "mean"),
+            average_oldpeak=("oldpeak", "mean"),
+            severity_code=("severity_code", "first"),
+        )
+        .sort_values("severity_code")
+        .drop(columns=["severity_code"])
+        .round(2)
+        .reset_index()
+    )
+
+    binary = (
+        df.groupby("diagnosis_binary", dropna=False)
+        .agg(
+            patient_count=("diagnosis_binary", "size"),
+            average_age=("age", "mean"),
+            average_trestbps=("trestbps", "mean"),
+            average_maximum_heart_rate=("maximum_heart_rate", "mean"),
+            average_oldpeak=("oldpeak", "mean"),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+    return {"multiclass": multiclass, "binary": binary}
+
+
+def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Patient-group comparison tables required by the app."""
+    by_sex = (
+        df.groupby("sex_label", dropna=False)
+        .agg(
+            patient_count=("sex_label", "size"),
+            average_age=("age", "mean"),
+            average_trestbps=("trestbps", "mean"),
+            average_maximum_heart_rate=("maximum_heart_rate", "mean"),
+            average_oldpeak=("oldpeak", "mean"),
+            exercise_induced_angina_yes_pct=(
+                "exercise_induced_angina",
+                lambda s: (s == 1).mean() * 100,
+            ),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+    by_age_group = (
+        df.groupby("age_group", dropna=False)
+        .agg(
+            patient_count=("age_group", "size"),
+            average_trestbps=("trestbps", "mean"),
+            average_maximum_heart_rate=("maximum_heart_rate", "mean"),
+            average_oldpeak=("oldpeak", "mean"),
+            asymptomatic_chest_pain_pct=("chest_pain", lambda s: (s == "asymptomatic").mean() * 100),
+            exercise_induced_angina_yes_pct=(
+                "exercise_induced_angina",
+                lambda s: (s == 1).mean() * 100,
+            ),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+    by_chest_pain = (
+        df.groupby("chest_pain", dropna=False)
+        .agg(
+            patient_count=("chest_pain", "size"),
+            average_age=("age", "mean"),
+            average_maximum_heart_rate=("maximum_heart_rate", "mean"),
+            average_oldpeak=("oldpeak", "mean"),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+    by_exercise_induced_angina = (
+        df.groupby("exercise_induced_angina_label", dropna=False)
+        .agg(
+            patient_count=("exercise_induced_angina_label", "size"),
+            average_age=("age", "mean"),
+            average_trestbps=("trestbps", "mean"),
+            average_maximum_heart_rate=("maximum_heart_rate", "mean"),
+            average_oldpeak=("oldpeak", "mean"),
+            disease_pct=("diagnosis_binary", lambda s: (s == "disease").mean() * 100),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+    sex_diagnosis_distribution = pd.crosstab(
+        df["sex_label"], df["diagnosis"], normalize="index"
+    ).mul(100).round(2).reset_index()
+    age_group_diagnosis_distribution = pd.crosstab(
+        df["age_group"], df["diagnosis"], normalize="index"
+    ).mul(100).round(2).reset_index()
+    chest_pain_diagnosis_distribution = pd.crosstab(
+        df["chest_pain"], df["diagnosis"], normalize="index"
+    ).mul(100).round(2).reset_index()
+    exercise_angina_disease_distribution = pd.crosstab(
+        df["exercise_induced_angina_label"], df["diagnosis_binary"], normalize="index"
+    ).mul(100).round(2).reset_index()
+
+    return {
+        "by_sex": by_sex,
+        "by_age_group": by_age_group,
+        "by_chest_pain": by_chest_pain,
+        "by_exercise_induced_angina": by_exercise_induced_angina,
+        "sex_diagnosis_distribution_pct": sex_diagnosis_distribution,
+        "age_group_diagnosis_distribution_pct": age_group_diagnosis_distribution,
+        "chest_pain_diagnosis_distribution_pct": chest_pain_diagnosis_distribution,
+        "exercise_angina_disease_distribution_pct": exercise_angina_disease_distribution,
+    }
 
 
 def get_cli_args() -> argparse.Namespace:
@@ -165,6 +345,15 @@ def get_cli_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Table name for cleaned data",
+    )
+    parser.add_argument("--filter-sex", type=str, default=None, help="Optional analysis filter")
+    parser.add_argument("--filter-age-group", type=str, default=None, help="Optional analysis filter")
+    parser.add_argument("--filter-chest-pain", type=str, default=None, help="Optional analysis filter")
+    parser.add_argument(
+        "--filter-diagnosis-binary",
+        type=str,
+        default=None,
+        help="Optional analysis filter (disease/no disease)",
     )
     return parser.parse_args()
 
@@ -210,6 +399,17 @@ def run_cleaning_step() -> None:
 
     load_dataframe_to_sqlite(cleaned_df, args.db_path, table_name)
     analysis_df = read_back_sqlite_table(args.db_path, table_name)
+    filtered_analysis_df = apply_analysis_filters(
+        analysis_df,
+        sex=args.filter_sex,
+        age_group=args.filter_age_group,
+        chest_pain=args.filter_chest_pain,
+        diagnosis_binary=args.filter_diagnosis_binary,
+    )
+
+    overall_stats = basic_statistics(filtered_analysis_df)
+    diagnosis_tables = diagnosis_distribution_tables(filtered_analysis_df)
+    comparison_tables = group_comparison_tables(filtered_analysis_df)
 
     print(f"Source rows loaded: {len(source_df)}")
     print(f"Rows after cleaning: {len(cleaned_df)}")
@@ -219,6 +419,21 @@ def run_cleaning_step() -> None:
     print(f"Cleaned data loaded to table: {table_name}")
     print(f"Database path: {args.db_path}")
     print(f"Rows available for analysis from DB: {len(analysis_df)}")
+    print(f"Rows after optional filters: {len(filtered_analysis_df)}")
+
+    print("\nBasic statistics:")
+    print(overall_stats)
+
+    print("\nDiagnosis distribution (multiclass):")
+    print(diagnosis_tables["multiclass"].to_string(index=False))
+
+    print("\nDiagnosis distribution (binary):")
+    print(diagnosis_tables["binary"].to_string(index=False))
+
+    print("\nGroup comparison tables:")
+    for table_key, table_value in comparison_tables.items():
+        print(f"\n{table_key}:")
+        print(table_value.to_string(index=False))
 
 
 if __name__ == "__main__":
