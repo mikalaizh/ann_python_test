@@ -15,6 +15,7 @@ DATASET_PATHS = {
 DEFAULT_DATASET = "hungarian"
 DEFAULT_CHARTS_DIR = Path("output/charts")
 DEFAULT_PDF_REPORT = Path("output/heart_disease_analysis_report.pdf")
+DEFAULT_CSV_EXPORT_DIR = Path("output/csv")
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -757,6 +758,44 @@ def _build_pdf_bytes(
             tmp_path.unlink()
 
 
+def export_analysis_to_csv(
+    filtered_df: pd.DataFrame,
+    comparison_tables: dict[str, pd.DataFrame | dict[str, pd.DataFrame]],
+    diagnosis_tables: dict[str, pd.DataFrame],
+    export_dir: Path,
+) -> dict[str, Path]:
+    """Export reusable analysis outputs to CSV files."""
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    exported_paths: dict[str, Path] = {}
+
+    filtered_path = export_dir / "filtered_patients.csv"
+    filtered_df.to_csv(filtered_path, index=False, sep=";")
+    exported_paths["filtered_patients"] = filtered_path
+
+    by_sex_path = export_dir / "group_comparison_by_sex.csv"
+    comparison_tables["by_sex"].to_csv(by_sex_path, index=False, sep=";")
+    exported_paths["group_comparison_by_sex"] = by_sex_path
+
+    by_age_group_path = export_dir / "group_comparison_by_age_group.csv"
+    comparison_tables["by_age_group"].to_csv(by_age_group_path, index=False, sep=";")
+    exported_paths["group_comparison_by_age_group"] = by_age_group_path
+
+    diagnosis_multiclass_path = export_dir / "diagnosis_distribution_multiclass.csv"
+    diagnosis_tables["multiclass"].to_csv(diagnosis_multiclass_path, index=False, sep=";")
+    exported_paths["diagnosis_distribution_multiclass"] = diagnosis_multiclass_path
+
+    diagnosis_binary_path = export_dir / "diagnosis_distribution_binary.csv"
+    diagnosis_tables["binary"].to_csv(diagnosis_binary_path, index=False, sep=";")
+    exported_paths["diagnosis_distribution_binary"] = diagnosis_binary_path
+
+    chest_pain_distribution_path = export_dir / "chest_pain_distribution.csv"
+    comparison_tables["by_chest_pain"].to_csv(chest_pain_distribution_path, index=False, sep=";")
+    exported_paths["chest_pain_distribution"] = chest_pain_distribution_path
+
+    return exported_paths
+
+
 def run_streamlit_app() -> None:
     """Render interactive Streamlit GUI for filtering and analysis."""
     import matplotlib.pyplot as plt
@@ -883,6 +922,31 @@ def run_streamlit_app() -> None:
     )
 
     diagnosis_tables = diagnosis_distribution_tables(filtered_df)
+    st.download_button(
+        "Download group comparison by sex (CSV)",
+        data=comparisons["by_sex"].to_csv(index=False, sep=";").encode("utf-8"),
+        file_name=f"{dataset_key}_group_comparison_by_sex.csv",
+        mime="text/csv",
+    )
+    st.download_button(
+        "Download group comparison by age group (CSV)",
+        data=comparisons["by_age_group"].to_csv(index=False, sep=";").encode("utf-8"),
+        file_name=f"{dataset_key}_group_comparison_by_age_group.csv",
+        mime="text/csv",
+    )
+    st.download_button(
+        "Download diagnosis distribution (CSV)",
+        data=diagnosis_tables["multiclass"].to_csv(index=False, sep=";").encode("utf-8"),
+        file_name=f"{dataset_key}_diagnosis_distribution_multiclass.csv",
+        mime="text/csv",
+    )
+    st.download_button(
+        "Download chest pain distribution (CSV)",
+        data=comparisons["by_chest_pain"].to_csv(index=False, sep=";").encode("utf-8"),
+        file_name=f"{dataset_key}_chest_pain_distribution.csv",
+        mime="text/csv",
+    )
+
     pdf_bytes = _build_pdf_bytes(stats, diagnosis_tables["multiclass"], diagnosis_tables["binary"])
     st.download_button(
         "Download PDF report",
@@ -926,6 +990,12 @@ def get_cli_args() -> argparse.Namespace:
         help="Path where the cleaned CSV should be saved",
     )
     parser.add_argument("--pdf-output", type=Path, default=DEFAULT_PDF_REPORT, help="Path for PDF report export")
+    parser.add_argument(
+        "--csv-export-dir",
+        type=Path,
+        default=DEFAULT_CSV_EXPORT_DIR,
+        help="Directory for CSV analysis export files",
+    )
     parser.add_argument(
         "--charts-dir",
         type=Path,
@@ -982,6 +1052,12 @@ def run_cleaning_step() -> None:
     diagnosis_tables = diagnosis_distribution_tables(filtered_analysis_df)
     comparison_tables = group_comparison_tables(filtered_analysis_df)
     generated_charts = generate_visualizations(filtered_analysis_df, args.charts_dir)
+    exported_csvs = export_analysis_to_csv(
+        filtered_analysis_df,
+        comparison_tables=comparison_tables,
+        diagnosis_tables=diagnosis_tables,
+        export_dir=args.csv_export_dir,
+    )
     export_analysis_to_pdf(
         overall_stats,
         diagnosis_tables["multiclass"],
@@ -996,6 +1072,7 @@ def run_cleaning_step() -> None:
     print(f"Cleaned file saved to: {output_path}")
     print(f"Rows after optional filters: {len(filtered_analysis_df)}")
     print(f"PDF report saved to: {args.pdf_output}")
+    print(f"CSV export directory: {args.csv_export_dir}")
 
     print("\nBasic statistics:")
     print(overall_stats)
@@ -1032,6 +1109,10 @@ def run_cleaning_step() -> None:
     print("\nGenerated charts:")
     for chart_path in generated_charts:
         print(f"- {chart_path}")
+
+    print("\nExported CSV files:")
+    for csv_key, csv_path in exported_csvs.items():
+        print(f"- {csv_key}: {csv_path}")
 
 
 if __name__ == "__main__":
