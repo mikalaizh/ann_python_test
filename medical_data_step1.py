@@ -1,6 +1,5 @@
 import argparse
 import importlib.util
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -13,8 +12,8 @@ DATASET_PATHS = {
 }
 
 DEFAULT_DATASET = "hungarian"
-DEFAULT_DB = Path("input/heart_disease_analysis.db")
 DEFAULT_CHARTS_DIR = Path("output/charts")
+DEFAULT_PDF_REPORT = Path("output/heart_disease_analysis_report.pdf")
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -626,6 +625,79 @@ def generate_visualizations(df: pd.DataFrame, charts_dir: Path) -> list[Path]:
     return generated_files
 
 
+def export_analysis_to_pdf(
+    stats: dict[str, object],
+    diagnosis_multiclass: pd.DataFrame,
+    diagnosis_binary: pd.DataFrame,
+    output_pdf: Path,
+) -> None:
+    """Export key analysis outputs to a PDF report."""
+    if importlib.util.find_spec("matplotlib") is None:
+        print(
+            "WARNING: matplotlib is not installed, skipping PDF generation. "
+            "Install dependencies from requirements.txt to enable PDF export."
+        )
+        return
+
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    with PdfPages(output_pdf) as pdf:
+        # Page 1: summary stats.
+        fig, ax = plt.subplots(figsize=(8.27, 11.69))
+        ax.axis("off")
+        summary_lines = [
+            "Heart Disease Analysis Report",
+            "",
+            "Basic statistics:",
+        ]
+        summary_lines.extend([f"- {key}: {value}" for key, value in stats.items()])
+        ax.text(
+            0.02,
+            0.98,
+            "\n".join(summary_lines),
+            va="top",
+            ha="left",
+            fontsize=10,
+            family="monospace",
+        )
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # Page 2: multiclass diagnosis table.
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        ax.axis("off")
+        ax.set_title("Diagnosis Distribution (Multiclass)", fontsize=12, pad=12)
+        table = ax.table(
+            cellText=diagnosis_multiclass.fillna("").values,
+            colLabels=diagnosis_multiclass.columns,
+            loc="center",
+            cellLoc="center",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1.0, 1.3)
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # Page 3: binary diagnosis table.
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        ax.axis("off")
+        ax.set_title("Diagnosis Distribution (Binary)", fontsize=12, pad=12)
+        table = ax.table(
+            cellText=diagnosis_binary.fillna("").values,
+            colLabels=diagnosis_binary.columns,
+            loc="center",
+            cellLoc="center",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1.0, 1.4)
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+
 def get_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Clean the first version of the heart disease CSV file"
@@ -649,18 +721,7 @@ def get_cli_args() -> argparse.Namespace:
         default=None,
         help="Path where the cleaned CSV should be saved",
     )
-    parser.add_argument(
-        "--db-path",
-        type=Path,
-        default=DEFAULT_DB,
-        help="SQLite database path",
-    )
-    parser.add_argument(
-        "--table-name",
-        type=str,
-        default=None,
-        help="Table name for cleaned data",
-    )
+    parser.add_argument("--pdf-output", type=Path, default=DEFAULT_PDF_REPORT, help="Path for PDF report export")
     parser.add_argument(
         "--charts-dir",
         type=Path,
@@ -677,19 +738,6 @@ def get_cli_args() -> argparse.Namespace:
         help="Optional analysis filter (disease/no disease)",
     )
     return parser.parse_args()
-
-
-def load_dataframe_to_sqlite(df: pd.DataFrame, db_path: Path, table_name: str) -> None:
-    """Connect to SQLite and load the cleaned dataframe into a table."""
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as connection:
-        df.to_sql(table_name, connection, if_exists="replace", index=False)
-
-
-def read_back_sqlite_table(db_path: Path, table_name: str) -> pd.DataFrame:
-    """Reconnect to SQLite and read the table back for analysis."""
-    with sqlite3.connect(db_path) as connection:
-        return pd.read_sql_query(f"SELECT * FROM {table_name}", connection)
 
 
 def run_cleaning_step() -> None:
@@ -710,7 +758,6 @@ def run_cleaning_step() -> None:
         args.output
         or input_path.with_name(input_path.name.replace(" source.csv", " cleaned_step1.csv"))
     )
-    table_name = args.table_name or f"{args.dataset}_cleaned_step1"
 
     source_df = load_source_csv(input_path)
     cleaned_df = prepare_heart_disease_data(source_df)
@@ -718,10 +765,8 @@ def run_cleaning_step() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cleaned_df.to_csv(output_path, sep=";", index=False)
 
-    load_dataframe_to_sqlite(cleaned_df, args.db_path, table_name)
-    analysis_df = read_back_sqlite_table(args.db_path, table_name)
     filtered_analysis_df = apply_analysis_filters(
-        analysis_df,
+        cleaned_df,
         sex=args.filter_sex,
         age_group=args.filter_age_group,
         chest_pain=args.filter_chest_pain,
@@ -733,16 +778,20 @@ def run_cleaning_step() -> None:
     diagnosis_tables = diagnosis_distribution_tables(filtered_analysis_df)
     comparison_tables = group_comparison_tables(filtered_analysis_df)
     generated_charts = generate_visualizations(filtered_analysis_df, args.charts_dir)
+    export_analysis_to_pdf(
+        overall_stats,
+        diagnosis_tables["multiclass"],
+        diagnosis_tables["binary"],
+        args.pdf_output,
+    )
 
     print(f"Source rows loaded: {len(source_df)}")
     print(f"Rows after cleaning: {len(cleaned_df)}")
     print(f"Dataset key: {args.dataset}")
     print(f"Source file used: {input_path}")
     print(f"Cleaned file saved to: {output_path}")
-    print(f"Cleaned data loaded to table: {table_name}")
-    print(f"Database path: {args.db_path}")
-    print(f"Rows available for analysis from DB: {len(analysis_df)}")
     print(f"Rows after optional filters: {len(filtered_analysis_df)}")
+    print(f"PDF report saved to: {args.pdf_output}")
 
     print("\nBasic statistics:")
     print(overall_stats)
