@@ -5,10 +5,14 @@ from pathlib import Path
 import pandas as pd
 
 
-DEFAULT_INPUT = Path("input/processed.switzerland.data source.csv")
-DEFAULT_OUTPUT = Path("input/processed.switzerland.data cleaned_step1.csv")
+DATASET_PATHS = {
+    "hungarian": Path("input/processed.hungarian.data source.csv"),
+    "va": Path("input/processed.va.data source.csv"),
+    "switzerland": Path("input/processed.switzerland.data source.csv"),
+}
+
+DEFAULT_DATASET = "switzerland"
 DEFAULT_DB = Path("input/heart_disease_analysis.db")
-DEFAULT_TABLE = "switzerland_cleaned_step1"
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -132,15 +136,22 @@ def get_cli_args() -> argparse.Namespace:
         description="Clean the first version of the heart disease CSV file"
     )
     parser.add_argument(
+        "--dataset",
+        type=str,
+        choices=sorted(DATASET_PATHS.keys()),
+        default=DEFAULT_DATASET,
+        help="Dataset key used to resolve defaults for input/output/table",
+    )
+    parser.add_argument(
         "--input",
         type=Path,
-        default=DEFAULT_INPUT,
+        default=None,
         help="Path to the source CSV file",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_OUTPUT,
+        default=None,
         help="Path where the cleaned CSV should be saved",
     )
     parser.add_argument(
@@ -152,7 +163,7 @@ def get_cli_args() -> argparse.Namespace:
     parser.add_argument(
         "--table-name",
         type=str,
-        default=DEFAULT_TABLE,
+        default=None,
         help="Table name for cleaned data",
     )
     return parser.parse_args()
@@ -174,19 +185,38 @@ def read_back_sqlite_table(db_path: Path, table_name: str) -> pd.DataFrame:
 def run_cleaning_step() -> None:
     args = get_cli_args()
 
-    source_df = load_source_csv(args.input)
+    input_path = args.input or DATASET_PATHS[args.dataset]
+    if not input_path.exists():
+        available_paths = "\n".join(
+            [f"- {name}: {path}" for name, path in DATASET_PATHS.items()]
+        )
+        raise FileNotFoundError(
+            f"Input file not found: {input_path}\n"
+            "Use --input to provide a path or place a dataset file in one of:\n"
+            f"{available_paths}"
+        )
+
+    output_path = (
+        args.output
+        or input_path.with_name(input_path.name.replace(" source.csv", " cleaned_step1.csv"))
+    )
+    table_name = args.table_name or f"{args.dataset}_cleaned_step1"
+
+    source_df = load_source_csv(input_path)
     cleaned_df = prepare_heart_disease_data(source_df)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    cleaned_df.to_csv(args.output, sep=";", index=False)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned_df.to_csv(output_path, sep=";", index=False)
 
-    load_dataframe_to_sqlite(cleaned_df, args.db_path, args.table_name)
-    analysis_df = read_back_sqlite_table(args.db_path, args.table_name)
+    load_dataframe_to_sqlite(cleaned_df, args.db_path, table_name)
+    analysis_df = read_back_sqlite_table(args.db_path, table_name)
 
     print(f"Source rows loaded: {len(source_df)}")
     print(f"Rows after cleaning: {len(cleaned_df)}")
-    print(f"Cleaned file saved to: {args.output}")
-    print(f"Cleaned data loaded to table: {args.table_name}")
+    print(f"Dataset key: {args.dataset}")
+    print(f"Source file used: {input_path}")
+    print(f"Cleaned file saved to: {output_path}")
+    print(f"Cleaned data loaded to table: {table_name}")
     print(f"Database path: {args.db_path}")
     print(f"Rows available for analysis from DB: {len(analysis_df)}")
 
