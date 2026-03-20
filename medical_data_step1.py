@@ -11,7 +11,7 @@ DATASET_PATHS = {
     "switzerland": Path("input/processed.switzerland.data source.csv"),
 }
 
-DEFAULT_DATASET = "switzerland"
+DEFAULT_DATASET = "hungarian"
 DEFAULT_DB = Path("input/heart_disease_analysis.db")
 
 COLUMN_RENAME_MAP = {
@@ -138,8 +138,8 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
     )
     data["age_group"] = pd.cut(
         data["age"],
-        bins=[0, 44, 54, 64, 120],
-        labels=["<45", "45-54", "55-64", "65+"],
+        bins=[0, 39, 55, 120],
+        labels=["<40", "40-55", "56+"],
     )
     severity_map = {
         "no disease": 0,
@@ -172,6 +172,149 @@ def apply_analysis_filters(
         if value is not None:
             filtered = filtered[filtered[column] == value]
     return filtered
+
+
+def filter_by_age_range(df: pd.DataFrame, min_age: int | None = None, max_age: int | None = None) -> pd.DataFrame:
+    """Filter patients by an inclusive age range."""
+    filtered = df.copy()
+    if min_age is not None:
+        filtered = filtered[filtered["age"] >= min_age]
+    if max_age is not None:
+        filtered = filtered[filtered["age"] <= max_age]
+    return filtered
+
+
+def filter_by_sex(df: pd.DataFrame, sex: str) -> pd.DataFrame:
+    """Filter patients by sex label."""
+    return df[df["sex_label"] == sex].copy()
+
+
+def filter_by_diagnosis(df: pd.DataFrame, diagnosis: str, binary: bool = True) -> pd.DataFrame:
+    """Filter by diagnosis label (binary or multiclass)."""
+    diagnosis_column = "diagnosis_binary" if binary else "diagnosis"
+    return df[df[diagnosis_column] == diagnosis].copy()
+
+
+def filter_by_cholesterol_range(
+    df: pd.DataFrame,
+    min_cholesterol: float | None = None,
+    max_cholesterol: float | None = None,
+) -> pd.DataFrame:
+    """Filter by inclusive cholesterol range."""
+    filtered = df.copy()
+    if min_cholesterol is not None:
+        filtered = filtered[filtered["cholesterol"] >= min_cholesterol]
+    if max_cholesterol is not None:
+        filtered = filtered[filtered["cholesterol"] <= max_cholesterol]
+    return filtered
+
+
+def filter_by_blood_pressure_range(
+    df: pd.DataFrame,
+    min_bp: float | None = None,
+    max_bp: float | None = None,
+) -> pd.DataFrame:
+    """Filter by inclusive resting blood pressure range."""
+    filtered = df.copy()
+    if min_bp is not None:
+        filtered = filtered[filtered["trestbps"] >= min_bp]
+    if max_bp is not None:
+        filtered = filtered[filtered["trestbps"] <= max_bp]
+    return filtered
+
+
+def calculate_mean(df: pd.DataFrame, column: str) -> float:
+    """Return mean for a numeric column."""
+    return round(float(df[column].mean()), 2)
+
+
+def calculate_median(df: pd.DataFrame, column: str) -> float:
+    """Return median for a numeric column."""
+    return round(float(df[column].median()), 2)
+
+
+def group_by_sex(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate statistics grouped by sex."""
+    return (
+        df.groupby("sex_label", dropna=False)
+        .agg(
+            patient_count=("sex_label", "size"),
+            average_age=("age", "mean"),
+            average_cholesterol=("cholesterol", "mean"),
+            average_resting_blood_pressure=("trestbps", "mean"),
+            average_max_heart_rate=("maximum_heart_rate", "mean"),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+
+def group_by_age_group(df: pd.DataFrame, age_group_column: str = "age_group") -> pd.DataFrame:
+    """Aggregate statistics grouped by age group."""
+    return (
+        df.groupby(age_group_column, dropna=False)
+        .agg(
+            patient_count=(age_group_column, "size"),
+            average_age=("age", "mean"),
+            average_cholesterol=("cholesterol", "mean"),
+            average_resting_blood_pressure=("trestbps", "mean"),
+            average_max_heart_rate=("maximum_heart_rate", "mean"),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+
+def group_by_disease_status(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate statistics grouped by binary disease status."""
+    return (
+        df.groupby("diagnosis_binary", dropna=False)
+        .agg(
+            patient_count=("diagnosis_binary", "size"),
+            average_age=("age", "mean"),
+            average_cholesterol=("cholesterol", "mean"),
+            average_resting_blood_pressure=("trestbps", "mean"),
+            average_max_heart_rate=("maximum_heart_rate", "mean"),
+        )
+        .round(2)
+        .reset_index()
+    )
+
+
+def build_core_analysis_outputs(df: pd.DataFrame) -> dict[str, object]:
+    """Build core pandas analysis outputs required before GUI work."""
+    men_df = filter_by_sex(df, "male")
+    women_df = filter_by_sex(df, "female")
+    disease_df = filter_by_diagnosis(df, "disease", binary=True)
+    no_disease_df = filter_by_diagnosis(df, "no disease", binary=True)
+
+    return {
+        "filter_examples": {
+            "age_40_to_55_count": int(len(filter_by_age_range(df, min_age=40, max_age=55))),
+            "male_count": int(len(men_df)),
+            "disease_count": int(len(disease_df)),
+            "cholesterol_200_to_240_count": int(len(filter_by_cholesterol_range(df, 200, 240))),
+            "blood_pressure_120_to_140_count": int(len(filter_by_blood_pressure_range(df, 120, 140))),
+        },
+        "mean_and_median": {
+            "mean_age": calculate_mean(df, "age"),
+            "median_age": calculate_median(df, "age"),
+            "mean_cholesterol": calculate_mean(df, "cholesterol"),
+            "median_cholesterol": calculate_median(df, "cholesterol"),
+        },
+        "example_metrics": {
+            "average_cholesterol_men": calculate_mean(men_df, "cholesterol"),
+            "average_cholesterol_women": calculate_mean(women_df, "cholesterol"),
+            "median_age_disease": calculate_median(disease_df, "age"),
+            "median_age_no_disease": calculate_median(no_disease_df, "age"),
+            "count_by_age_category": df["age_group"].value_counts(dropna=False).to_dict(),
+        },
+        "groupings": {
+            "by_sex": group_by_sex(df),
+            "by_age_group": group_by_age_group(df),
+            "by_disease_status": group_by_disease_status(df),
+        },
+    }
 
 
 def basic_statistics(df: pd.DataFrame) -> dict[str, object]:
@@ -226,6 +369,20 @@ def diagnosis_distribution_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Patient-group comparison tables required by the app."""
+    def comparison_agg(group_column: str) -> pd.DataFrame:
+        return (
+            df.groupby(group_column, dropna=False)
+            .agg(
+                patient_count=(group_column, "size"),
+                average_age=("age", "mean"),
+                average_cholesterol=("cholesterol", "mean"),
+                average_resting_blood_pressure=("trestbps", "mean"),
+                average_max_heart_rate=("maximum_heart_rate", "mean"),
+            )
+            .round(2)
+            .reset_index()
+        )
+
     by_sex = (
         df.groupby("sex_label", dropna=False)
         .agg(
@@ -299,6 +456,27 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         df["exercise_induced_angina_label"], df["diagnosis_binary"], normalize="index"
     ).mul(100).round(2).reset_index()
 
+    comparison_df = df.copy()
+    comparison_df["cholesterol_group"] = comparison_df["cholesterol"].apply(
+        lambda c: "high cholesterol" if c >= 240 else "normal cholesterol"
+    )
+    required_comparisons = {
+        "men_vs_women": comparison_agg("sex_label"),
+        "younger_vs_older": group_by_age_group(comparison_df, age_group_column="age_group"),
+        "disease_vs_no_disease": comparison_agg("diagnosis_binary"),
+        "chest_pain_types": comparison_agg("chest_pain"),
+        "high_vs_normal_cholesterol": comparison_df.groupby("cholesterol_group", dropna=False)
+        .agg(
+            patient_count=("cholesterol_group", "size"),
+            average_age=("age", "mean"),
+            average_cholesterol=("cholesterol", "mean"),
+            average_resting_blood_pressure=("trestbps", "mean"),
+            average_max_heart_rate=("maximum_heart_rate", "mean"),
+        )
+        .round(2)
+        .reset_index(),
+    }
+
     return {
         "by_sex": by_sex,
         "by_age_group": by_age_group,
@@ -308,6 +486,7 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "age_group_diagnosis_distribution_pct": age_group_diagnosis_distribution,
         "chest_pain_diagnosis_distribution_pct": chest_pain_diagnosis_distribution,
         "exercise_angina_disease_distribution_pct": exercise_angina_disease_distribution,
+        "required_comparisons": required_comparisons,
     }
 
 
@@ -408,6 +587,7 @@ def run_cleaning_step() -> None:
     )
 
     overall_stats = basic_statistics(filtered_analysis_df)
+    core_analysis_outputs = build_core_analysis_outputs(filtered_analysis_df)
     diagnosis_tables = diagnosis_distribution_tables(filtered_analysis_df)
     comparison_tables = group_comparison_tables(filtered_analysis_df)
 
@@ -424,6 +604,18 @@ def run_cleaning_step() -> None:
     print("\nBasic statistics:")
     print(overall_stats)
 
+    print("\nCore analysis functions (plain pandas):")
+    print("\nFilter examples:")
+    print(core_analysis_outputs["filter_examples"])
+    print("\nMean and median:")
+    print(core_analysis_outputs["mean_and_median"])
+    print("\nRequested example metrics:")
+    print(core_analysis_outputs["example_metrics"])
+    print("\nGrouping outputs:")
+    for grouping_key, grouping_df in core_analysis_outputs["groupings"].items():
+        print(f"\n{grouping_key}:")
+        print(grouping_df.to_string(index=False))
+
     print("\nDiagnosis distribution (multiclass):")
     print(diagnosis_tables["multiclass"].to_string(index=False))
 
@@ -432,6 +624,12 @@ def run_cleaning_step() -> None:
 
     print("\nGroup comparison tables:")
     for table_key, table_value in comparison_tables.items():
+        if isinstance(table_value, dict):
+            print(f"\n{table_key}:")
+            for nested_key, nested_df in table_value.items():
+                print(f"\n{nested_key}:")
+                print(nested_df.to_string(index=False))
+            continue
         print(f"\n{table_key}:")
         print(table_value.to_string(index=False))
 
