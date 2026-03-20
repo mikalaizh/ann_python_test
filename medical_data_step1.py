@@ -12,6 +12,18 @@ DATASET_PATHS = {
     "switzerland": Path("input/processed.switzerland.data source.csv"),
 }
 
+DATASET_FALLBACK_PATHS = {
+    "hungarian": [Path("input/processed.hungarian.data source.csv")],
+    "va": [
+        Path("input/processed.va.data target.csv"),
+        Path("input/processed.va.data source.csv"),
+    ],
+    "switzerland": [
+        Path("input/processed.switzerland.data target.csv"),
+        Path("input/processed.switzerland.data source.csv"),
+    ],
+}
+
 DEFAULT_DATASET = "hungarian"
 DEFAULT_CHARTS_DIR = Path("output/charts")
 DEFAULT_PDF_REPORT = Path("output/heart_disease_analysis_report.pdf")
@@ -27,6 +39,15 @@ COLUMN_RENAME_MAP = {
     "exang": "exercise_induced_angina",
     "num": "diagnosis_raw",
 }
+
+
+def resolve_dataset_path(dataset_key: str) -> Path:
+    """Resolve the most appropriate file for a dataset key."""
+    candidate_paths = DATASET_FALLBACK_PATHS.get(dataset_key, [DATASET_PATHS[dataset_key]])
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate
+    return DATASET_PATHS[dataset_key]
 
 
 def load_source_csv(file_path: Path) -> pd.DataFrame:
@@ -807,8 +828,10 @@ def run_streamlit_app() -> None:
 
     st.sidebar.header("Filters")
     dataset_key = st.sidebar.selectbox("Choose dataset", options=list(DATASET_PATHS.keys()), index=0)
-    source_df = load_source_csv(DATASET_PATHS[dataset_key])
+    dataset_path = resolve_dataset_path(dataset_key)
+    source_df = load_source_csv(dataset_path)
     cleaned_df = prepare_heart_disease_data(source_df)
+    st.caption(f"Dataset file in use: `{dataset_path}`")
 
     min_age, max_age = int(cleaned_df["age"].min()), int(cleaned_df["age"].max())
     min_bp, max_bp = int(cleaned_df["trestbps"].min()), int(cleaned_df["trestbps"].max())
@@ -1017,7 +1040,7 @@ def get_cli_args() -> argparse.Namespace:
 def run_cleaning_step() -> None:
     args = get_cli_args()
 
-    input_path = args.input or DATASET_PATHS[args.dataset]
+    input_path = args.input or resolve_dataset_path(args.dataset)
     if not input_path.exists():
         available_paths = "\n".join(
             [f"- {name}: {path}" for name, path in DATASET_PATHS.items()]
