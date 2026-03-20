@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -698,6 +699,209 @@ def export_analysis_to_pdf(
         plt.close(fig)
 
 
+def apply_sidebar_filters(
+    df: pd.DataFrame,
+    age_range: tuple[int, int],
+    selected_sex: list[str],
+    selected_diagnosis: list[str],
+    selected_chest_pain: list[str],
+    bp_range: tuple[int, int],
+    max_hr_range: tuple[int, int],
+    selected_exang: list[str],
+    selected_restecg: list[str],
+    selected_slope: list[str],
+    selected_fbs: list[str],
+    selected_thal: list[str],
+) -> pd.DataFrame:
+    """Apply all Streamlit sidebar filters with pandas operations."""
+    filtered = df.copy()
+
+    filtered = filtered[(filtered["age"] >= age_range[0]) & (filtered["age"] <= age_range[1])]
+    filtered = filtered[(filtered["trestbps"] >= bp_range[0]) & (filtered["trestbps"] <= bp_range[1])]
+    filtered = filtered[
+        (filtered["maximum_heart_rate"] >= max_hr_range[0])
+        & (filtered["maximum_heart_rate"] <= max_hr_range[1])
+    ]
+
+    categorical_filters = {
+        "sex_label": selected_sex,
+        "diagnosis": selected_diagnosis,
+        "chest_pain": selected_chest_pain,
+        "exercise_induced_angina_label": selected_exang,
+        "restecg": selected_restecg,
+        "slope_label": selected_slope,
+        "fasting_blood_sugar_label": selected_fbs,
+        "thal_label": selected_thal,
+    }
+
+    for column, selected_values in categorical_filters.items():
+        if selected_values:
+            filtered = filtered[filtered[column].isin(selected_values)]
+
+    return filtered
+
+
+def _build_pdf_bytes(
+    stats: dict[str, object],
+    diagnosis_multiclass: pd.DataFrame,
+    diagnosis_binary: pd.DataFrame,
+) -> bytes:
+    """Create PDF report content as bytes for Streamlit download."""
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+        tmp_path = Path(tmp_pdf.name)
+    try:
+        export_analysis_to_pdf(stats, diagnosis_multiclass, diagnosis_binary, tmp_path)
+        return tmp_path.read_bytes() if tmp_path.exists() else b""
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+def run_streamlit_app() -> None:
+    """Render interactive Streamlit GUI for filtering and analysis."""
+    import matplotlib.pyplot as plt
+    import streamlit as st
+
+    st.set_page_config(page_title="Heart Disease Analysis GUI", layout="wide")
+    st.title("Heart Disease Analysis Dashboard")
+    st.caption("Built with pandas + matplotlib + Streamlit")
+
+    st.sidebar.header("Filters")
+    dataset_key = st.sidebar.selectbox("Choose dataset", options=list(DATASET_PATHS.keys()), index=0)
+    source_df = load_source_csv(DATASET_PATHS[dataset_key])
+    cleaned_df = prepare_heart_disease_data(source_df)
+
+    min_age, max_age = int(cleaned_df["age"].min()), int(cleaned_df["age"].max())
+    min_bp, max_bp = int(cleaned_df["trestbps"].min()), int(cleaned_df["trestbps"].max())
+    min_hr, max_hr = int(cleaned_df["maximum_heart_rate"].min()), int(cleaned_df["maximum_heart_rate"].max())
+
+    age_range = st.sidebar.slider("Age range", min_value=min_age, max_value=max_age, value=(min_age, max_age))
+    selected_sex = st.sidebar.multiselect("Sex", sorted(cleaned_df["sex_label"].dropna().unique().tolist()))
+    selected_diagnosis = st.sidebar.multiselect("Diagnosis", sorted(cleaned_df["diagnosis"].dropna().unique().tolist()))
+    selected_chest_pain = st.sidebar.multiselect(
+        "Chest pain type", sorted(cleaned_df["chest_pain"].dropna().unique().tolist())
+    )
+    bp_range = st.sidebar.slider(
+        "Resting blood pressure range",
+        min_value=min_bp,
+        max_value=max_bp,
+        value=(min_bp, max_bp),
+    )
+    max_hr_range = st.sidebar.slider(
+        "Maximum heart rate range",
+        min_value=min_hr,
+        max_value=max_hr,
+        value=(min_hr, max_hr),
+    )
+    selected_exang = st.sidebar.multiselect(
+        "Exercise-induced angina",
+        sorted(cleaned_df["exercise_induced_angina_label"].dropna().unique().tolist()),
+    )
+    selected_restecg = st.sidebar.multiselect("Resting ECG", sorted(cleaned_df["restecg"].dropna().unique().tolist()))
+    selected_slope = st.sidebar.multiselect("Slope", sorted(cleaned_df["slope_label"].dropna().unique().tolist()))
+
+    with st.sidebar.expander("Optional extra filters"):
+        selected_fbs = st.multiselect(
+            "Fasting blood sugar",
+            sorted(cleaned_df["fasting_blood_sugar_label"].dropna().unique().tolist()),
+        )
+        selected_thal = st.multiselect("Thal", sorted(cleaned_df["thal_label"].dropna().unique().tolist()))
+
+    filtered_df = apply_sidebar_filters(
+        cleaned_df,
+        age_range=age_range,
+        selected_sex=selected_sex,
+        selected_diagnosis=selected_diagnosis,
+        selected_chest_pain=selected_chest_pain,
+        bp_range=bp_range,
+        max_hr_range=max_hr_range,
+        selected_exang=selected_exang,
+        selected_restecg=selected_restecg,
+        selected_slope=selected_slope,
+        selected_fbs=selected_fbs,
+        selected_thal=selected_thal,
+    )
+
+    st.subheader("Dataset preview (filtered)")
+    st.write(f"Rows: {len(filtered_df)} / {len(cleaned_df)}")
+    st.dataframe(filtered_df.head(200), use_container_width=True)
+
+    if filtered_df.empty:
+        st.warning("No rows match the selected filters. Adjust filters to continue analysis.")
+        return
+
+    st.subheader("Basic statistics")
+    stats = basic_statistics(filtered_df)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Patients", stats["number_of_patients"])
+    col2.metric("Average age", stats["average_age"])
+    col3.metric("Median age", stats["median_age"])
+    st.json(stats)
+
+    st.subheader("Comparison of patient groups")
+    comparisons = group_comparison_tables(filtered_df)
+    st.markdown("**By sex**")
+    st.dataframe(comparisons["by_sex"], use_container_width=True)
+    st.markdown("**By age group**")
+    st.dataframe(comparisons["by_age_group"], use_container_width=True)
+    st.markdown("**By chest pain**")
+    st.dataframe(comparisons["by_chest_pain"], use_container_width=True)
+    st.markdown("**By exercise-induced angina**")
+    st.dataframe(comparisons["by_exercise_induced_angina"], use_container_width=True)
+
+    st.subheader("Visualization section")
+    fig1, ax1 = plt.subplots(figsize=(6, 4))
+    filtered_df["age"].plot(kind="hist", bins=15, ax=ax1, color="#4C78A8", edgecolor="white")
+    ax1.set_title("Age distribution")
+    st.pyplot(fig1)
+    plt.close(fig1)
+
+    fig2, ax2 = plt.subplots(figsize=(6, 4))
+    filtered_df["diagnosis_label"].value_counts(dropna=False).plot(kind="bar", ax=ax2, color="#59A14F")
+    ax2.set_title("Diagnosis distribution")
+    ax2.tick_params(axis="x", rotation=25)
+    st.pyplot(fig2)
+    plt.close(fig2)
+
+    fig3, ax3 = plt.subplots(figsize=(6, 4))
+    for label, group_df in filtered_df.groupby("diagnosis_label", dropna=False):
+        ax3.scatter(group_df["age"], group_df["maximum_heart_rate"], s=30, alpha=0.75, label=str(label))
+    ax3.set_xlabel("Age")
+    ax3.set_ylabel("Maximum heart rate")
+    ax3.set_title("Age vs maximum heart rate")
+    ax3.legend()
+    st.pyplot(fig3)
+    plt.close(fig3)
+
+    st.subheader("Export section")
+    csv_bytes = filtered_df.to_csv(index=False, sep=";").encode("utf-8")
+    st.download_button(
+        "Download filtered CSV",
+        data=csv_bytes,
+        file_name=f"{dataset_key}_filtered.csv",
+        mime="text/csv",
+    )
+
+    diagnosis_tables = diagnosis_distribution_tables(filtered_df)
+    pdf_bytes = _build_pdf_bytes(stats, diagnosis_tables["multiclass"], diagnosis_tables["binary"])
+    st.download_button(
+        "Download PDF report",
+        data=pdf_bytes,
+        file_name=f"{dataset_key}_analysis_report.pdf",
+        mime="application/pdf",
+    )
+
+
+def is_running_in_streamlit() -> bool:
+    """Detect whether the script is executed via `streamlit run`."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        return get_script_run_ctx() is not None
+    except Exception:
+        return False
+
+
 def get_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Clean the first version of the heart disease CSV file"
@@ -831,4 +1035,7 @@ def run_cleaning_step() -> None:
 
 
 if __name__ == "__main__":
-    run_cleaning_step()
+    if is_running_in_streamlit():
+        run_streamlit_app()
+    else:
+        run_cleaning_step()
