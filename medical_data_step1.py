@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import sqlite3
 from pathlib import Path
 
@@ -13,6 +14,7 @@ DATASET_PATHS = {
 
 DEFAULT_DATASET = "hungarian"
 DEFAULT_DB = Path("input/heart_disease_analysis.db")
+DEFAULT_CHARTS_DIR = Path("output/charts")
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -490,6 +492,140 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     }
 
 
+def _save_histogram(df: pd.DataFrame, column: str, title: str, output_file: Path, bins: int = 15) -> None:
+    """Render and save a histogram for a numeric column."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.hist(df[column].dropna(), bins=bins, color="#4C78A8", edgecolor="white")
+    ax.set_title(title)
+    ax.set_xlabel(column.replace("_", " ").title())
+    ax.set_ylabel("Patient count")
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=150)
+    plt.close(fig)
+
+
+def _save_scatter_plot(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    hue_col: str,
+    title: str,
+    output_file: Path,
+) -> None:
+    """Render and save a scatter plot colored by a categorical column."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for label, group_df in df.groupby(hue_col, dropna=False):
+        ax.scatter(
+            group_df[x_col],
+            group_df[y_col],
+            alpha=0.75,
+            s=30,
+            label=str(label),
+        )
+    ax.set_title(title)
+    ax.set_xlabel(x_col.replace("_", " ").title())
+    ax.set_ylabel(y_col.replace("_", " ").title())
+    ax.legend(title=hue_col.replace("_", " ").title())
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=150)
+    plt.close(fig)
+
+
+def _save_bar_chart(value_counts: pd.Series, title: str, x_label: str, output_file: Path) -> None:
+    """Render and save a bar chart from a value-count series."""
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    value_counts.plot(kind="bar", ax=ax, color="#59A14F")
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel("Patient count")
+    ax.tick_params(axis="x", rotation=25)
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=150)
+    plt.close(fig)
+
+
+def generate_visualizations(df: pd.DataFrame, charts_dir: Path) -> list[Path]:
+    """Generate six core visuals using the currently filtered dataset."""
+    if importlib.util.find_spec("matplotlib") is None:
+        print(
+            "WARNING: matplotlib is not installed, skipping chart generation. "
+            "Install dependencies from requirements.txt to enable visuals."
+        )
+        return []
+
+    charts_dir.mkdir(parents=True, exist_ok=True)
+    generated_files: list[Path] = []
+
+    visualization_specs = [
+        (
+            "hist_age.png",
+            lambda: _save_histogram(
+                df, "age", "Age Distribution (Filtered Patients)", charts_dir / "hist_age.png"
+            ),
+        ),
+        (
+            "hist_resting_blood_pressure.png",
+            lambda: _save_histogram(
+                df,
+                "trestbps",
+                "Resting Blood Pressure Distribution (Filtered Patients)",
+                charts_dir / "hist_resting_blood_pressure.png",
+            ),
+        ),
+        (
+            "hist_max_heart_rate.png",
+            lambda: _save_histogram(
+                df,
+                "maximum_heart_rate",
+                "Maximum Heart Rate Distribution (Filtered Patients)",
+                charts_dir / "hist_max_heart_rate.png",
+            ),
+        ),
+        (
+            "scatter_age_vs_max_hr.png",
+            lambda: _save_scatter_plot(
+                df,
+                "age",
+                "maximum_heart_rate",
+                "diagnosis_label",
+                "Age vs Maximum Heart Rate (Filtered Patients)",
+                charts_dir / "scatter_age_vs_max_hr.png",
+            ),
+        ),
+        (
+            "bar_diagnosis_distribution.png",
+            lambda: _save_bar_chart(
+                df["diagnosis_label"].value_counts(dropna=False),
+                "Diagnosis Distribution (Filtered Patients)",
+                "Diagnosis label",
+                charts_dir / "bar_diagnosis_distribution.png",
+            ),
+        ),
+        (
+            "bar_chest_pain_distribution.png",
+            lambda: _save_bar_chart(
+                df["chest_pain"].value_counts(dropna=False),
+                "Chest Pain Type Distribution (Filtered Patients)",
+                "Chest pain type",
+                charts_dir / "bar_chest_pain_distribution.png",
+            ),
+        ),
+    ]
+
+    for filename, render in visualization_specs:
+        output_file = charts_dir / filename
+        render()
+        generated_files.append(output_file)
+
+    return generated_files
+
+
 def get_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Clean the first version of the heart disease CSV file"
@@ -524,6 +660,12 @@ def get_cli_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Table name for cleaned data",
+    )
+    parser.add_argument(
+        "--charts-dir",
+        type=Path,
+        default=DEFAULT_CHARTS_DIR,
+        help="Directory where generated charts are saved",
     )
     parser.add_argument("--filter-sex", type=str, default=None, help="Optional analysis filter")
     parser.add_argument("--filter-age-group", type=str, default=None, help="Optional analysis filter")
@@ -590,6 +732,7 @@ def run_cleaning_step() -> None:
     core_analysis_outputs = build_core_analysis_outputs(filtered_analysis_df)
     diagnosis_tables = diagnosis_distribution_tables(filtered_analysis_df)
     comparison_tables = group_comparison_tables(filtered_analysis_df)
+    generated_charts = generate_visualizations(filtered_analysis_df, args.charts_dir)
 
     print(f"Source rows loaded: {len(source_df)}")
     print(f"Rows after cleaning: {len(cleaned_df)}")
@@ -632,6 +775,10 @@ def run_cleaning_step() -> None:
             continue
         print(f"\n{table_key}:")
         print(table_value.to_string(index=False))
+
+    print("\nGenerated charts:")
+    for chart_path in generated_charts:
+        print(f"- {chart_path}")
 
 
 if __name__ == "__main__":
