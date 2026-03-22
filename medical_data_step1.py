@@ -648,12 +648,13 @@ def generate_visualizations(df: pd.DataFrame, charts_dir: Path) -> list[Path]:
 
 
 def export_analysis_to_pdf(
+    filtered_df: pd.DataFrame,
     stats: dict[str, object],
-    diagnosis_multiclass: pd.DataFrame,
-    diagnosis_binary: pd.DataFrame,
+    comparison_tables: dict[str, pd.DataFrame | dict[str, pd.DataFrame]],
+    diagnosis_tables: dict[str, pd.DataFrame],
     output_pdf: Path,
 ) -> None:
-    """Export key analysis outputs to a PDF report."""
+    """Export a UI-aligned analysis report to a PDF file."""
     if importlib.util.find_spec("matplotlib") is None:
         print(
             "WARNING: matplotlib is not installed, skipping PDF generation. "
@@ -664,55 +665,107 @@ def export_analysis_to_pdf(
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
 
+    def _render_table_on_axis(ax, title: str, table_df: pd.DataFrame) -> None:
+        safe_table_df = table_df.astype(object).where(pd.notna(table_df), "")
+        ax.axis("off")
+        ax.set_title(title, fontsize=11, pad=8, loc="left")
+        table = ax.table(
+            cellText=safe_table_df.values,
+            colLabels=safe_table_df.columns,
+            loc="center",
+            cellLoc="center",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(6.5)
+        table.scale(1.0, 1.1)
+
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(output_pdf) as pdf:
         fig, ax = plt.subplots(figsize=(8.27, 11.69))
         ax.axis("off")
-        summary_lines = [
-            "Heart Disease Analysis Report",
-            "",
-            "Basic statistics:",
+        ax.text(0.5, 0.95, "Heart Disease Analysis Dashboard", ha="center", va="top", fontsize=20, fontweight="bold")
+        ax.text(0.5, 0.9, "PDF Export", ha="center", va="top", fontsize=12, color="#4b5563")
+        ax.text(0.5, 0.82, "Basic statistics", ha="center", va="center", fontsize=15, fontweight="bold")
+        kpis = [
+            ("Patient count", int(stats["patient_count"])),
+            ("Average age", stats["average_age"]),
+            ("Average cholesterol", stats["average_cholesterol"]),
+            ("Average resting BP", stats["average_resting_blood_pressure"]),
+            ("Average max heart rate", stats["average_max_heart_rate"]),
         ]
-        summary_lines.extend([f"- {key}: {value}" for key, value in stats.items()])
-        ax.text(
-            0.02,
-            0.98,
-            "\n".join(summary_lines),
-            va="top",
-            ha="left",
-            fontsize=10,
-            family="monospace",
-        )
+        for idx, (label, value) in enumerate(kpis):
+            row, col = divmod(idx, 3)
+            x = 0.06 + col * 0.31
+            y = 0.60 - row * 0.22
+            ax.add_patch(
+                plt.Rectangle((x, y), 0.27, 0.16, fill=False, linewidth=1.2, edgecolor="#9ca3af")
+            )
+            ax.text(x + 0.135, y + 0.11, label, ha="center", va="center", fontsize=11, color="#374151")
+            ax.text(x + 0.135, y + 0.05, f"{value}", ha="center", va="center", fontsize=16, fontweight="bold")
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
-        fig, ax = plt.subplots(figsize=(11.69, 8.27))
-        ax.axis("off")
-        ax.set_title("Diagnosis Distribution (Multiclass)", fontsize=12, pad=12)
-        table = ax.table(
-            cellText=diagnosis_multiclass.fillna("").values,
-            colLabels=diagnosis_multiclass.columns,
-            loc="center",
-            cellLoc="center",
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(8)
-        table.scale(1.0, 1.3)
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
+        table_sections: list[tuple[str, pd.DataFrame]] = [
+            ("Comparison of patient groups - by sex", comparison_tables["by_sex"]),
+            ("Comparison of patient groups - by age group", comparison_tables["by_age_group"]),
+            ("Comparison of patient groups - by chest pain", comparison_tables["by_chest_pain"]),
+            ("Comparison of patient groups - by exercise-induced angina", comparison_tables["by_exercise_induced_angina"]),
+            ("Diagnosis distribution (multiclass)", diagnosis_tables["multiclass"]),
+            ("Diagnosis distribution (binary)", diagnosis_tables["binary"]),
+        ]
+        per_page = 3
+        for page_start in range(0, len(table_sections), per_page):
+            page_sections = table_sections[page_start: page_start + per_page]
+            fig, axes = plt.subplots(per_page, 1, figsize=(8.27, 11.69))
+            if per_page == 1:
+                axes = [axes]
+            fig.suptitle("Comparison of patient groups", fontsize=13, y=0.985)
+            for idx, axis in enumerate(axes):
+                if idx < len(page_sections):
+                    title, table_df = page_sections[idx]
+                    _render_table_on_axis(axis, title, table_df)
+                else:
+                    axis.axis("off")
+            fig.tight_layout(rect=[0.03, 0.02, 0.97, 0.97])
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
 
-        fig, ax = plt.subplots(figsize=(11.69, 8.27))
-        ax.axis("off")
-        ax.set_title("Diagnosis Distribution (Binary)", fontsize=12, pad=12)
-        table = ax.table(
-            cellText=diagnosis_binary.fillna("").values,
-            colLabels=diagnosis_binary.columns,
-            loc="center",
-            cellLoc="center",
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(8)
-        table.scale(1.0, 1.4)
+        fig, axes = plt.subplots(3, 2, figsize=(8.27, 11.69))
+        fig.suptitle("Visualization section", fontsize=15, y=0.995)
+
+        axes[0, 0].hist(filtered_df["age"], bins=15, color="#4C78A8", edgecolor="white")
+        axes[0, 0].set_title("Age distribution")
+        axes[0, 0].set_xlabel("Age")
+        axes[0, 0].set_ylabel("Patient count")
+
+        axes[0, 1].hist(filtered_df["trestbps"], bins=15, color="#F28E2B", edgecolor="white")
+        axes[0, 1].set_title("Resting blood pressure distribution")
+        axes[0, 1].set_xlabel("Resting blood pressure")
+        axes[0, 1].set_ylabel("Patient count")
+
+        diagnosis_counts = filtered_df["diagnosis_label"].value_counts(dropna=False)
+        axes[1, 0].bar(diagnosis_counts.index.astype(str), diagnosis_counts.values, color="#59A14F")
+        axes[1, 0].set_title("Diagnosis distribution")
+        axes[1, 0].tick_params(axis="x", rotation=20)
+
+        chest_pain_counts = filtered_df["chest_pain"].value_counts(dropna=False)
+        axes[1, 1].bar(chest_pain_counts.index.astype(str), chest_pain_counts.values, color="#E15759")
+        axes[1, 1].set_title("Chest pain type distribution")
+        axes[1, 1].tick_params(axis="x", rotation=20)
+
+        for label, group_df in filtered_df.groupby("diagnosis_label", dropna=False):
+            axes[2, 0].scatter(group_df["age"], group_df["maximum_heart_rate"], s=25, alpha=0.7, label=str(label))
+            axes[2, 1].scatter(group_df["maximum_heart_rate"], group_df["oldpeak"], s=25, alpha=0.7, label=str(label))
+        axes[2, 0].set_title("Age vs maximum heart rate")
+        axes[2, 0].set_xlabel("Age")
+        axes[2, 0].set_ylabel("Maximum heart rate")
+        axes[2, 0].legend(fontsize=8)
+        axes[2, 1].set_title("Maximum heart rate vs oldpeak")
+        axes[2, 1].set_xlabel("Maximum heart rate")
+        axes[2, 1].set_ylabel("Oldpeak")
+        axes[2, 1].legend(fontsize=8)
+
+        fig.tight_layout(rect=[0, 0, 1, 0.98])
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
@@ -760,15 +813,16 @@ def apply_sidebar_filters(
 
 
 def _build_pdf_bytes(
+    filtered_df: pd.DataFrame,
     stats: dict[str, object],
-    diagnosis_multiclass: pd.DataFrame,
-    diagnosis_binary: pd.DataFrame,
+    comparison_tables: dict[str, pd.DataFrame | dict[str, pd.DataFrame]],
+    diagnosis_tables: dict[str, pd.DataFrame],
 ) -> bytes:
     """Create PDF report content as bytes for Streamlit download."""
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
         tmp_path = Path(tmp_pdf.name)
     try:
-        export_analysis_to_pdf(stats, diagnosis_multiclass, diagnosis_binary, tmp_path)
+        export_analysis_to_pdf(filtered_df, stats, comparison_tables, diagnosis_tables, tmp_path)
         return tmp_path.read_bytes() if tmp_path.exists() else b""
     finally:
         if tmp_path.exists():
@@ -1159,9 +1213,10 @@ def run_streamlit_app() -> None:
     selected_csv_bytes = selected_csv_df.to_csv(index=False, sep=";").encode("utf-8")
 
     pdf_bytes = _build_pdf_bytes(
+        filtered_df,
         stats,
-        diagnosis_tables["multiclass"],
-        diagnosis_tables["binary"],
+        comparisons,
+        diagnosis_tables,
     )
 
     source_dataset_bytes = dataset_path.read_bytes()
@@ -1313,9 +1368,10 @@ def run_cleaning_step() -> None:
         export_dir=args.csv_export_dir,
     )
     export_analysis_to_pdf(
+        filtered_analysis_df,
         overall_stats,
-        diagnosis_tables["multiclass"],
-        diagnosis_tables["binary"],
+        comparison_tables,
+        diagnosis_tables,
         args.pdf_output,
     )
 
