@@ -6,28 +6,18 @@ from pathlib import Path
 import pandas as pd
 
 
-DATASET_PATHS = {
-    "hungarian": Path("input/processed.hungarian.data source.csv"),
-    "va": Path("input/processed.va.data source.csv"),
-    "switzerland": Path("input/processed.switzerland.data source.csv"),
-}
+BASE_DIR = Path(__file__).resolve().parent
 
-DATASET_FALLBACK_PATHS = {
-    "hungarian": [Path("input/processed.hungarian.data source.csv")],
-    "va": [
-        Path("input/processed.va.data target.csv"),
-        Path("input/processed.va.data source.csv"),
-    ],
-    "switzerland": [
-        Path("input/processed.switzerland.data target.csv"),
-        Path("input/processed.switzerland.data source.csv"),
-    ],
+DATASET_PATHS = {
+    "hungarian": BASE_DIR / "input/processed.hungarian.data source.csv",
+    "va": BASE_DIR / "input/processed.va.data source.csv",
+    "switzerland": BASE_DIR / "input/processed.switzerland.data source.csv",
 }
 
 DEFAULT_DATASET = "hungarian"
-DEFAULT_CHARTS_DIR = Path("output/charts")
-DEFAULT_PDF_REPORT = Path("output/heart_disease_analysis_report.pdf")
-DEFAULT_CSV_EXPORT_DIR = Path("output/csv")
+DEFAULT_CHARTS_DIR = BASE_DIR / "output/charts"
+DEFAULT_PDF_REPORT = BASE_DIR / "output/heart_disease_analysis_report.pdf"
+DEFAULT_CSV_EXPORT_DIR = BASE_DIR / "output/csv"
 
 COLUMN_RENAME_MAP = {
     "cp": "chest_pain_type",
@@ -41,13 +31,29 @@ COLUMN_RENAME_MAP = {
 }
 
 
-def resolve_dataset_path(dataset_key: str) -> Path:
-    """Resolve the most appropriate file for a dataset key."""
-    candidate_paths = DATASET_FALLBACK_PATHS.get(dataset_key, [DATASET_PATHS[dataset_key]])
-    for candidate in candidate_paths:
-        if candidate.exists():
-            return candidate
-    return DATASET_PATHS[dataset_key]
+def safe_streamlit_rerun(st_module) -> None:
+    """Rerun Streamlit app, supporting older and newer Streamlit versions."""
+    if hasattr(st_module, "rerun"):
+        st_module.rerun()
+    else:
+        st_module.experimental_rerun()
+
+
+def get_source_dataset_path(dataset_key: str) -> Path:
+    """Use only the original source CSV for the Streamlit app."""
+    if dataset_key not in DATASET_PATHS:
+        raise KeyError(f"Unknown dataset key: {dataset_key}")
+
+    path = DATASET_PATHS[dataset_key].resolve()
+
+    if not path.exists():
+        raise FileNotFoundError(f"Dataset file not found: {path}")
+
+    return path
+
+
+def resolve_dataset_path_for_cli(dataset_key: str) -> Path:
+    return get_source_dataset_path(dataset_key)
 
 
 def load_source_csv(file_path: Path) -> pd.DataFrame:
@@ -59,13 +65,9 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
     """Clean the raw heart-disease dataset and add readable diagnosis fields."""
     data = df.copy()
 
-    # Rename short source columns.
     data = data.rename(columns=COLUMN_RENAME_MAP)
-
-    # Convert "?" to missing.
     data = data.replace("?", pd.NA)
 
-    # Force numeric columns.
     columns_to_convert = [
         "age",
         "sex",
@@ -87,13 +89,11 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         if column in data.columns:
             data[column] = pd.to_numeric(data[column], errors="coerce")
 
-    # Drop rows with too many missing values.
     data = data[data.isna().sum(axis=1) <= 5].copy()
+    data = data.dropna(
+        subset=["resting_blood_pressure", "diagnosis_raw", "age", "max_heart_rate", "oldpeak"]
+    ).copy()
 
-    # Drop rows missing mandatory fields for analysis.
-    data = data.dropna(subset=["resting_blood_pressure", "diagnosis_raw", "age", "max_heart_rate", "oldpeak"]).copy()
-
-    # Keep raw and binary targets.
     data["has_disease"] = (data["diagnosis_raw"] > 0).astype(int)
     data["diagnosis_label"] = data["has_disease"].map({
         0: "no disease",
@@ -107,7 +107,6 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         4: "severity 4 (critical)",
     })
 
-    # Add readable labels.
     data["sex_label"] = data["sex"].map({
         0: "female",
         1: "male",
@@ -149,14 +148,12 @@ def prepare_heart_disease_data(df: pd.DataFrame) -> pd.DataFrame:
         7: "reversible defect",
     })
 
-    # Analysis-friendly aliases requested by app logic.
     data["chest_pain"] = data["chest_pain_label"]
     data["trestbps"] = data["resting_blood_pressure"]
     data["restecg"] = data["resting_ecg_label"]
     data["maximum_heart_rate"] = data["max_heart_rate"]
     data["diagnosis"] = data["severity_label"]
 
-    # Derived analysis fields.
     data["diagnosis_binary"] = data["diagnosis"].apply(
         lambda x: "disease" if x != "no disease" else "no disease"
     )
@@ -344,11 +341,12 @@ def build_core_analysis_outputs(df: pd.DataFrame) -> dict[str, object]:
 def basic_statistics(df: pd.DataFrame) -> dict[str, object]:
     """General characteristics of the dataset."""
     return {
-        "number_of_patients": int(len(df)),
+        "patient_count": int(len(df)),
         "average_age": round(float(df["age"].mean()), 2),
         "median_age": round(float(df["age"].median()), 2),
+        "average_cholesterol": round(float(df["cholesterol"].mean()), 2),
         "average_resting_blood_pressure": round(float(df["trestbps"].mean()), 2),
-        "average_maximum_heart_rate": round(float(df["maximum_heart_rate"].mean()), 2),
+        "average_max_heart_rate": round(float(df["maximum_heart_rate"].mean()), 2),
         "average_oldpeak": round(float(df["oldpeak"].mean()), 2),
         "count_by_sex": df["sex_label"].value_counts(dropna=False).to_dict(),
         "count_by_chest_pain_type": df["chest_pain"].value_counts(dropna=False).to_dict(),
@@ -391,8 +389,9 @@ def diagnosis_distribution_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {"multiclass": multiclass, "binary": binary}
 
 
-def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame | dict[str, pd.DataFrame]]:
     """Patient-group comparison tables required by the app."""
+
     def comparison_agg(group_column: str) -> pd.DataFrame:
         return (
             df.groupby(group_column, dropna=False)
@@ -415,10 +414,7 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
             average_trestbps=("trestbps", "mean"),
             average_maximum_heart_rate=("maximum_heart_rate", "mean"),
             average_oldpeak=("oldpeak", "mean"),
-            exercise_induced_angina_yes_pct=(
-                "exercise_induced_angina",
-                lambda s: (s == 1).mean() * 100,
-            ),
+            exercise_induced_angina_yes_pct=("exercise_induced_angina", lambda s: (s == 1).mean() * 100),
         )
         .round(2)
         .reset_index()
@@ -432,10 +428,7 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
             average_maximum_heart_rate=("maximum_heart_rate", "mean"),
             average_oldpeak=("oldpeak", "mean"),
             asymptomatic_chest_pain_pct=("chest_pain", lambda s: (s == "asymptomatic").mean() * 100),
-            exercise_induced_angina_yes_pct=(
-                "exercise_induced_angina",
-                lambda s: (s == 1).mean() * 100,
-            ),
+            exercise_induced_angina_yes_pct=("exercise_induced_angina", lambda s: (s == 1).mean() * 100),
         )
         .round(2)
         .reset_index()
@@ -470,12 +463,15 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     sex_diagnosis_distribution = pd.crosstab(
         df["sex_label"], df["diagnosis"], normalize="index"
     ).mul(100).round(2).reset_index()
+
     age_group_diagnosis_distribution = pd.crosstab(
         df["age_group"], df["diagnosis"], normalize="index"
     ).mul(100).round(2).reset_index()
+
     chest_pain_diagnosis_distribution = pd.crosstab(
         df["chest_pain"], df["diagnosis"], normalize="index"
     ).mul(100).round(2).reset_index()
+
     exercise_angina_disease_distribution = pd.crosstab(
         df["exercise_induced_angina_label"], df["diagnosis_binary"], normalize="index"
     ).mul(100).round(2).reset_index()
@@ -484,21 +480,24 @@ def group_comparison_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     comparison_df["cholesterol_group"] = comparison_df["cholesterol"].apply(
         lambda c: "high cholesterol" if c >= 240 else "normal cholesterol"
     )
+
     required_comparisons = {
         "men_vs_women": comparison_agg("sex_label"),
         "younger_vs_older": group_by_age_group(comparison_df, age_group_column="age_group"),
         "disease_vs_no_disease": comparison_agg("diagnosis_binary"),
         "chest_pain_types": comparison_agg("chest_pain"),
-        "high_vs_normal_cholesterol": comparison_df.groupby("cholesterol_group", dropna=False)
-        .agg(
-            patient_count=("cholesterol_group", "size"),
-            average_age=("age", "mean"),
-            average_cholesterol=("cholesterol", "mean"),
-            average_resting_blood_pressure=("trestbps", "mean"),
-            average_max_heart_rate=("maximum_heart_rate", "mean"),
-        )
-        .round(2)
-        .reset_index(),
+        "high_vs_normal_cholesterol": (
+            comparison_df.groupby("cholesterol_group", dropna=False)
+            .agg(
+                patient_count=("cholesterol_group", "size"),
+                average_age=("age", "mean"),
+                average_cholesterol=("cholesterol", "mean"),
+                average_resting_blood_pressure=("trestbps", "mean"),
+                average_max_heart_rate=("maximum_heart_rate", "mean"),
+            )
+            .round(2)
+            .reset_index()
+        ),
     }
 
     return {
@@ -667,7 +666,6 @@ def export_analysis_to_pdf(
 
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(output_pdf) as pdf:
-        # Page 1: summary stats.
         fig, ax = plt.subplots(figsize=(8.27, 11.69))
         ax.axis("off")
         summary_lines = [
@@ -688,7 +686,6 @@ def export_analysis_to_pdf(
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
-        # Page 2: multiclass diagnosis table.
         fig, ax = plt.subplots(figsize=(11.69, 8.27))
         ax.axis("off")
         ax.set_title("Diagnosis Distribution (Multiclass)", fontsize=12, pad=12)
@@ -704,7 +701,6 @@ def export_analysis_to_pdf(
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
-        # Page 3: binary diagnosis table.
         fig, ax = plt.subplots(figsize=(11.69, 8.27))
         ax.axis("off")
         ax.set_title("Diagnosis Distribution (Binary)", fontsize=12, pad=12)
@@ -822,52 +818,143 @@ def run_streamlit_app() -> None:
     import matplotlib.pyplot as plt
     import streamlit as st
 
-    st.set_page_config(page_title="Heart Disease Analysis GUI", layout="wide")
+    FILTER_NAMES = [
+        "age_range",
+        "selected_sex",
+        "selected_diagnosis",
+        "selected_chest_pain",
+        "bp_range",
+        "max_hr_range",
+        "selected_exang",
+        "selected_restecg",
+        "selected_slope",
+        "selected_fbs",
+        "selected_thal",
+    ]
+
+    def clear_filter_state_for_dataset(dataset_key: str) -> None:
+        prefix = f"{dataset_key}_"
+        for name in FILTER_NAMES:
+            st.session_state.pop(f"{prefix}{name}", None)
+
+    st.set_page_config(page_title="Heart Disease Analysis Dashboard", layout="wide")
     st.title("Heart Disease Analysis Dashboard")
-    st.caption("Built with pandas + matplotlib + Streamlit")
+
+    dataset_options = list(DATASET_PATHS.keys())
+
+    if "active_dataset" not in st.session_state:
+        st.session_state["active_dataset"] = DEFAULT_DATASET
+
+    if "pending_dataset" not in st.session_state:
+        st.session_state["pending_dataset"] = st.session_state["active_dataset"]
 
     st.sidebar.header("Filters")
-    dataset_key = st.sidebar.selectbox("Choose dataset", options=list(DATASET_PATHS.keys()), index=0)
-    dataset_path = resolve_dataset_path(dataset_key)
+
+    st.sidebar.selectbox(
+        "Choose dataset",
+        options=dataset_options,
+        key="pending_dataset",
+    )
+
+    apply_clicked = st.sidebar.button("Apply dataset", use_container_width=True)
+
+    if apply_clicked:
+        old_dataset = st.session_state.get("active_dataset", DEFAULT_DATASET)
+        new_dataset = st.session_state.get("pending_dataset", old_dataset)
+
+        if new_dataset != old_dataset:
+            clear_filter_state_for_dataset(old_dataset)
+            clear_filter_state_for_dataset(new_dataset)
+            st.session_state["active_dataset"] = new_dataset
+
+    dataset_key = st.session_state["active_dataset"]
+    dataset_path = get_source_dataset_path(dataset_key)
+
     source_df = load_source_csv(dataset_path)
     cleaned_df = prepare_heart_disease_data(source_df)
-    st.caption(f"Dataset file in use: `{dataset_path}`")
+
+    key_prefix = f"{dataset_key}_"
+
+    if cleaned_df.empty:
+        st.error("The selected dataset has no rows after cleaning.")
+        return
 
     min_age, max_age = int(cleaned_df["age"].min()), int(cleaned_df["age"].max())
     min_bp, max_bp = int(cleaned_df["trestbps"].min()), int(cleaned_df["trestbps"].max())
     min_hr, max_hr = int(cleaned_df["maximum_heart_rate"].min()), int(cleaned_df["maximum_heart_rate"].max())
 
-    age_range = st.sidebar.slider("Age range", min_value=min_age, max_value=max_age, value=(min_age, max_age))
-    selected_sex = st.sidebar.multiselect("Sex", sorted(cleaned_df["sex_label"].dropna().unique().tolist()))
-    selected_diagnosis = st.sidebar.multiselect("Diagnosis", sorted(cleaned_df["diagnosis"].dropna().unique().tolist()))
-    selected_chest_pain = st.sidebar.multiselect(
-        "Chest pain type", sorted(cleaned_df["chest_pain"].dropna().unique().tolist())
+    age_range = st.sidebar.slider(
+        "Age range",
+        min_value=min_age,
+        max_value=max_age,
+        value=(min_age, max_age),
+        key=f"{key_prefix}age_range",
     )
+
+    selected_sex = st.sidebar.multiselect(
+        "Sex",
+        sorted(cleaned_df["sex_label"].dropna().unique().tolist()),
+        key=f"{key_prefix}selected_sex",
+    )
+
+    selected_diagnosis = st.sidebar.multiselect(
+        "Diagnosis",
+        sorted(cleaned_df["diagnosis"].dropna().unique().tolist()),
+        key=f"{key_prefix}selected_diagnosis",
+    )
+
+    selected_chest_pain = st.sidebar.multiselect(
+        "Chest pain type",
+        sorted(cleaned_df["chest_pain"].dropna().unique().tolist()),
+        key=f"{key_prefix}selected_chest_pain",
+    )
+
     bp_range = st.sidebar.slider(
         "Resting blood pressure range",
         min_value=min_bp,
         max_value=max_bp,
         value=(min_bp, max_bp),
+        key=f"{key_prefix}bp_range",
     )
+
     max_hr_range = st.sidebar.slider(
         "Maximum heart rate range",
         min_value=min_hr,
         max_value=max_hr,
         value=(min_hr, max_hr),
+        key=f"{key_prefix}max_hr_range",
     )
+
     selected_exang = st.sidebar.multiselect(
         "Exercise-induced angina",
         sorted(cleaned_df["exercise_induced_angina_label"].dropna().unique().tolist()),
+        key=f"{key_prefix}selected_exang",
     )
-    selected_restecg = st.sidebar.multiselect("Resting ECG", sorted(cleaned_df["restecg"].dropna().unique().tolist()))
-    selected_slope = st.sidebar.multiselect("Slope", sorted(cleaned_df["slope_label"].dropna().unique().tolist()))
+
+    selected_restecg = st.sidebar.multiselect(
+        "Resting ECG",
+        sorted(cleaned_df["restecg"].dropna().unique().tolist()),
+        key=f"{key_prefix}selected_restecg",
+    )
+
+    selected_slope = st.sidebar.multiselect(
+        "Slope",
+        sorted(cleaned_df["slope_label"].dropna().unique().tolist()),
+        key=f"{key_prefix}selected_slope",
+    )
 
     with st.sidebar.expander("Optional extra filters"):
         selected_fbs = st.multiselect(
             "Fasting blood sugar",
             sorted(cleaned_df["fasting_blood_sugar_label"].dropna().unique().tolist()),
+            key=f"{key_prefix}selected_fbs",
         )
-        selected_thal = st.multiselect("Thal", sorted(cleaned_df["thal_label"].dropna().unique().tolist()))
+
+        selected_thal = st.multiselect(
+            "Thal",
+            sorted(cleaned_df["thal_label"].dropna().unique().tolist()),
+            key=f"{key_prefix}selected_thal",
+        )
 
     filtered_df = apply_sidebar_filters(
         cleaned_df,
@@ -884,9 +971,40 @@ def run_streamlit_app() -> None:
         selected_thal=selected_thal,
     )
 
-    st.subheader("Dataset preview (filtered)")
+    st.subheader("Database preview (filtered)")
     st.write(f"Rows: {len(filtered_df)} / {len(cleaned_df)}")
-    st.dataframe(filtered_df.head(200), use_container_width=True)
+
+    preview_columns = [
+        "age",
+        "sex_label",
+        "resting_blood_pressure",
+        "max_heart_rate",
+        "chest_pain_label",
+        "resting_ecg_label",
+        "slope_label",
+        "thal_label",
+        "diagnosis_binary",
+        "diagnosis",
+        "age_group",
+    ]
+
+    preview_df = filtered_df[preview_columns].rename(
+        columns={
+            "age": "Age",
+            "sex_label": "Sex",
+            "resting_blood_pressure": "Resting blood pressure",
+            "max_heart_rate": "Max heart rate",
+            "chest_pain_label": "Chest pain type",
+            "resting_ecg_label": "Resting ECG",
+            "slope_label": "Slope",
+            "thal_label": "Thal",
+            "diagnosis_binary": "Diagnosis (binary)",
+            "diagnosis": "Diagnosis (severity)",
+            "age_group": "Age group",
+        }
+    )
+
+    st.dataframe(preview_df.head(200), use_container_width=True, hide_index=True)
 
     if filtered_df.empty:
         st.warning("No rows match the selected filters. Adjust filters to continue analysis.")
@@ -894,96 +1012,211 @@ def run_streamlit_app() -> None:
 
     st.subheader("Basic statistics")
     stats = basic_statistics(filtered_df)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Patients", stats["number_of_patients"])
-    col2.metric("Average age", stats["average_age"])
-    col3.metric("Median age", stats["median_age"])
-    st.json(stats)
+
+    kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5 = st.columns(5)
+    kpi_col1.metric("Patient count", int(stats["patient_count"]))
+    kpi_col2.metric("Average age", stats["average_age"])
+    kpi_col3.metric("Average cholesterol", stats["average_cholesterol"])
+    kpi_col4.metric("Average resting blood pressure", stats["average_resting_blood_pressure"])
+    kpi_col5.metric("Average max heart rate", stats["average_max_heart_rate"])
 
     st.subheader("Comparison of patient groups")
     comparisons = group_comparison_tables(filtered_df)
+
     st.markdown("**By sex**")
-    st.dataframe(comparisons["by_sex"], use_container_width=True)
+    st.dataframe(comparisons["by_sex"], use_container_width=True, hide_index=True)
+
     st.markdown("**By age group**")
-    st.dataframe(comparisons["by_age_group"], use_container_width=True)
+    st.dataframe(comparisons["by_age_group"], use_container_width=True, hide_index=True)
+
     st.markdown("**By chest pain**")
-    st.dataframe(comparisons["by_chest_pain"], use_container_width=True)
+    st.dataframe(comparisons["by_chest_pain"], use_container_width=True, hide_index=True)
+
     st.markdown("**By exercise-induced angina**")
-    st.dataframe(comparisons["by_exercise_induced_angina"], use_container_width=True)
+    st.dataframe(comparisons["by_exercise_induced_angina"], use_container_width=True, hide_index=True)
 
     st.subheader("Visualization section")
-    fig1, ax1 = plt.subplots(figsize=(6, 4))
-    filtered_df["age"].plot(kind="hist", bins=15, ax=ax1, color="#4C78A8", edgecolor="white")
-    ax1.set_title("Age distribution")
-    st.pyplot(fig1)
-    plt.close(fig1)
 
-    fig2, ax2 = plt.subplots(figsize=(6, 4))
-    filtered_df["diagnosis_label"].value_counts(dropna=False).plot(kind="bar", ax=ax2, color="#59A14F")
-    ax2.set_title("Diagnosis distribution")
-    ax2.tick_params(axis="x", rotation=25)
-    st.pyplot(fig2)
-    plt.close(fig2)
+    # Row 1
+    chart_col1, chart_col2 = st.columns(2)
 
-    fig3, ax3 = plt.subplots(figsize=(6, 4))
-    for label, group_df in filtered_df.groupby("diagnosis_label", dropna=False):
-        ax3.scatter(group_df["age"], group_df["maximum_heart_rate"], s=30, alpha=0.75, label=str(label))
-    ax3.set_xlabel("Age")
-    ax3.set_ylabel("Maximum heart rate")
-    ax3.set_title("Age vs maximum heart rate")
-    ax3.legend()
-    st.pyplot(fig3)
-    plt.close(fig3)
+    with chart_col1:
+        fig1, ax1 = plt.subplots(figsize=(6, 4))
+        filtered_df["age"].plot(kind="hist", bins=15, ax=ax1, color="#4C78A8", edgecolor="white")
+        ax1.set_title("Age distribution")
+        ax1.set_xlabel("Age")
+        ax1.set_ylabel("Patient count")
+        st.pyplot(fig1)
+        plt.close(fig1)
+
+    with chart_col2:
+        fig2, ax2 = plt.subplots(figsize=(6, 4))
+        filtered_df["trestbps"].plot(kind="hist", bins=15, ax=ax2, color="#F28E2B", edgecolor="white")
+        ax2.set_title("Resting blood pressure distribution")
+        ax2.set_xlabel("Resting blood pressure")
+        ax2.set_ylabel("Patient count")
+        st.pyplot(fig2)
+        plt.close(fig2)
+
+    # Row 2
+    chart_col3, chart_col4 = st.columns(2)
+
+    with chart_col3:
+        diagnosis_counts = filtered_df["diagnosis_label"].value_counts(dropna=False)
+        fig3, ax3 = plt.subplots(figsize=(6, 4))
+        bars = ax3.bar(diagnosis_counts.index.astype(str), diagnosis_counts.values, color="#59A14F")
+        ax3.set_title("Diagnosis distribution")
+        ax3.set_xlabel("Diagnosis")
+        ax3.set_ylabel("Patient count")
+        ax3.tick_params(axis="x", rotation=20)
+        ax3.bar_label(bars, labels=[str(int(v)) for v in diagnosis_counts.values], padding=3)
+        st.pyplot(fig3)
+        plt.close(fig3)
+
+    with chart_col4:
+        chest_pain_counts = filtered_df["chest_pain"].value_counts(dropna=False)
+        fig4, ax4 = plt.subplots(figsize=(6, 4))
+        bars = ax4.bar(chest_pain_counts.index.astype(str), chest_pain_counts.values, color="#E15759")
+        ax4.set_title("Chest pain type distribution")
+        ax4.set_xlabel("Chest pain type")
+        ax4.set_ylabel("Patient count")
+        ax4.tick_params(axis="x", rotation=20)
+        ax4.bar_label(bars, labels=[str(int(v)) for v in chest_pain_counts.values], padding=3)
+        st.pyplot(fig4)
+        plt.close(fig4)
+
+    # Row 3
+    chart_col5, chart_col6 = st.columns(2)
+
+    with chart_col5:
+        fig5, ax5 = plt.subplots(figsize=(6, 4))
+        for label, group_df in filtered_df.groupby("diagnosis_label", dropna=False):
+            ax5.scatter(
+                group_df["age"],
+                group_df["maximum_heart_rate"],
+                s=30,
+                alpha=0.75,
+                label=str(label),
+            )
+        ax5.set_xlabel("Age")
+        ax5.set_ylabel("Maximum heart rate")
+        ax5.set_title("Age vs maximum heart rate")
+        ax5.legend()
+        st.pyplot(fig5)
+        plt.close(fig5)
+
+    with chart_col6:
+        fig6, ax6 = plt.subplots(figsize=(6, 4))
+        for label, group_df in filtered_df.groupby("diagnosis_label", dropna=False):
+            ax6.scatter(
+                group_df["maximum_heart_rate"],
+                group_df["oldpeak"],
+                s=30,
+                alpha=0.75,
+                label=str(label),
+            )
+        ax6.set_xlabel("Maximum heart rate")
+        ax6.set_ylabel("Oldpeak")
+        ax6.set_title("Maximum heart rate vs oldpeak")
+        ax6.legend()
+        st.pyplot(fig6)
+        plt.close(fig6)
 
     st.subheader("Export section")
-    csv_bytes = filtered_df.to_csv(index=False, sep=";").encode("utf-8")
-    st.download_button(
-        "Download filtered CSV",
-        data=csv_bytes,
-        file_name=f"{dataset_key}_filtered.csv",
-        mime="text/csv",
-    )
 
     diagnosis_tables = diagnosis_distribution_tables(filtered_df)
-    st.download_button(
-        "Download group comparison by sex (CSV)",
-        data=comparisons["by_sex"].to_csv(index=False, sep=";").encode("utf-8"),
-        file_name=f"{dataset_key}_group_comparison_by_sex.csv",
-        mime="text/csv",
-    )
-    st.download_button(
-        "Download group comparison by age group (CSV)",
-        data=comparisons["by_age_group"].to_csv(index=False, sep=";").encode("utf-8"),
-        file_name=f"{dataset_key}_group_comparison_by_age_group.csv",
-        mime="text/csv",
-    )
-    st.download_button(
-        "Download diagnosis distribution (CSV)",
-        data=diagnosis_tables["multiclass"].to_csv(index=False, sep=";").encode("utf-8"),
-        file_name=f"{dataset_key}_diagnosis_distribution_multiclass.csv",
-        mime="text/csv",
-    )
-    st.download_button(
-        "Download chest pain distribution (CSV)",
-        data=comparisons["by_chest_pain"].to_csv(index=False, sep=";").encode("utf-8"),
-        file_name=f"{dataset_key}_chest_pain_distribution.csv",
-        mime="text/csv",
+
+    csv_export_options = {
+        "Filtered dataset": (
+            filtered_df,
+            f"{dataset_key}_filtered.csv",
+        ),
+        "Group comparison by sex": (
+            comparisons["by_sex"],
+            f"{dataset_key}_group_comparison_by_sex.csv",
+        ),
+        "Group comparison by age group": (
+            comparisons["by_age_group"],
+            f"{dataset_key}_group_comparison_by_age_group.csv",
+        ),
+        "Diagnosis distribution": (
+            diagnosis_tables["multiclass"],
+            f"{dataset_key}_diagnosis_distribution_multiclass.csv",
+        ),
+        "Chest pain distribution": (
+            comparisons["by_chest_pain"],
+            f"{dataset_key}_chest_pain_distribution.csv",
+        ),
+    }
+
+    selected_csv_export = st.selectbox(
+        "Choose CSV export",
+        options=list(csv_export_options.keys()),
+        key=f"{key_prefix}selected_csv_export",
     )
 
-    pdf_bytes = _build_pdf_bytes(stats, diagnosis_tables["multiclass"], diagnosis_tables["binary"])
-    st.download_button(
-        "Download PDF report",
-        data=pdf_bytes,
-        file_name=f"{dataset_key}_analysis_report.pdf",
-        mime="application/pdf",
+    selected_csv_df, selected_csv_filename = csv_export_options[selected_csv_export]
+    selected_csv_bytes = selected_csv_df.to_csv(index=False, sep=";").encode("utf-8")
+
+    pdf_bytes = _build_pdf_bytes(
+        stats,
+        diagnosis_tables["multiclass"],
+        diagnosis_tables["binary"],
     )
+
+    source_dataset_bytes = dataset_path.read_bytes()
+
+    # Make the third button look lighter
+    st.markdown(
+        """
+        <style>
+        div[data-testid="column"]:nth-of-type(3) button[kind="secondary"] {
+            background-color: #f3f4f6 !important;
+            border: 1px solid #d1d5db !important;
+            color: #374151 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    button_col1, button_col2, button_col3 = st.columns(3)
+
+    with button_col1:
+        st.download_button(
+            "Download CSV",
+            data=selected_csv_bytes,
+            file_name=selected_csv_filename,
+            mime="text/csv",
+            key=f"{key_prefix}download_selected_csv",
+            use_container_width=True,
+        )
+
+    with button_col2:
+        st.download_button(
+            "Download PDF report",
+            data=pdf_bytes,
+            file_name=f"{dataset_key}_analysis_report.pdf",
+            mime="application/pdf",
+            key=f"{key_prefix}download_pdf",
+            use_container_width=True,
+        )
+
+    with button_col3:
+        st.download_button(
+            "Download source dataset",
+            data=source_dataset_bytes,
+            file_name=dataset_path.name,
+            mime="text/csv",
+            key=f"{key_prefix}download_source_dataset",
+            use_container_width=True,
+        )
 
 
 def is_running_in_streamlit() -> bool:
     """Detect whether the script is executed via `streamlit run`."""
     try:
         from streamlit.runtime.scriptrunner import get_script_run_ctx
-
         return get_script_run_ctx() is not None
     except Exception:
         return False
@@ -1040,11 +1273,9 @@ def get_cli_args() -> argparse.Namespace:
 def run_cleaning_step() -> None:
     args = get_cli_args()
 
-    input_path = args.input or resolve_dataset_path(args.dataset)
+    input_path = args.input or resolve_dataset_path_for_cli(args.dataset)
     if not input_path.exists():
-        available_paths = "\n".join(
-            [f"- {name}: {path}" for name, path in DATASET_PATHS.items()]
-        )
+        available_paths = "\n".join([f"- {name}: {path}" for name, path in DATASET_PATHS.items()])
         raise FileNotFoundError(
             f"Input file not found: {input_path}\n"
             "Use --input to provide a path or place a dataset file in one of:\n"
