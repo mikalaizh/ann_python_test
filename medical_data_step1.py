@@ -665,12 +665,10 @@ def export_analysis_to_pdf(
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
 
-    def _render_table_page(title: str, table_df: pd.DataFrame, *, landscape: bool = False) -> None:
-        fig_size = (11.69, 8.27) if landscape else (8.27, 11.69)
+    def _render_table_on_axis(ax, title: str, table_df: pd.DataFrame) -> None:
         safe_table_df = table_df.astype(object).where(pd.notna(table_df), "")
-        fig, ax = plt.subplots(figsize=fig_size)
         ax.axis("off")
-        ax.set_title(title, fontsize=13, pad=10)
+        ax.set_title(title, fontsize=11, pad=8, loc="left")
         table = ax.table(
             cellText=safe_table_df.values,
             colLabels=safe_table_df.columns,
@@ -678,10 +676,8 @@ def export_analysis_to_pdf(
             cellLoc="center",
         )
         table.auto_set_font_size(False)
-        table.set_fontsize(7)
-        table.scale(1.0, 1.25)
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
+        table.set_fontsize(6.5)
+        table.scale(1.0, 1.1)
 
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     with PdfPages(output_pdf) as pdf:
@@ -689,42 +685,7 @@ def export_analysis_to_pdf(
         ax.axis("off")
         ax.text(0.5, 0.95, "Heart Disease Analysis Dashboard", ha="center", va="top", fontsize=20, fontweight="bold")
         ax.text(0.5, 0.9, "PDF Export", ha="center", va="top", fontsize=12, color="#4b5563")
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
-
-        preview_columns = [
-            "age",
-            "sex_label",
-            "resting_blood_pressure",
-            "max_heart_rate",
-            "chest_pain_label",
-            "resting_ecg_label",
-            "slope_label",
-            "thal_label",
-            "diagnosis_binary",
-            "diagnosis",
-            "age_group",
-        ]
-        preview_table = filtered_df[preview_columns].rename(
-            columns={
-                "age": "Age",
-                "sex_label": "Sex",
-                "resting_blood_pressure": "Resting blood pressure",
-                "max_heart_rate": "Max heart rate",
-                "chest_pain_label": "Chest pain type",
-                "resting_ecg_label": "Resting ECG",
-                "slope_label": "Slope",
-                "thal_label": "Thal",
-                "diagnosis_binary": "Diagnosis (binary)",
-                "diagnosis": "Diagnosis (severity)",
-                "age_group": "Age group",
-            }
-        ).head(25)
-        _render_table_page("Database preview (filtered) - table", preview_table, landscape=True)
-
-        fig, ax = plt.subplots(figsize=(11.69, 8.27))
-        ax.axis("off")
-        ax.set_title("Basic statistics - KPI cards", fontsize=14, pad=18)
+        ax.text(0.5, 0.82, "Basic statistics", ha="center", va="center", fontsize=15, fontweight="bold")
         kpis = [
             ("Patient count", int(stats["patient_count"])),
             ("Average age", stats["average_age"]),
@@ -735,12 +696,12 @@ def export_analysis_to_pdf(
         for idx, (label, value) in enumerate(kpis):
             row, col = divmod(idx, 3)
             x = 0.06 + col * 0.31
-            y = 0.72 - row * 0.38
+            y = 0.60 - row * 0.22
             ax.add_patch(
-                plt.Rectangle((x, y), 0.27, 0.24, fill=False, linewidth=1.2, edgecolor="#9ca3af")
+                plt.Rectangle((x, y), 0.27, 0.16, fill=False, linewidth=1.2, edgecolor="#9ca3af")
             )
-            ax.text(x + 0.135, y + 0.16, label, ha="center", va="center", fontsize=11, color="#374151")
-            ax.text(x + 0.135, y + 0.08, f"{value}", ha="center", va="center", fontsize=16, fontweight="bold")
+            ax.text(x + 0.135, y + 0.11, label, ha="center", va="center", fontsize=11, color="#374151")
+            ax.text(x + 0.135, y + 0.05, f"{value}", ha="center", va="center", fontsize=16, fontweight="bold")
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
@@ -749,18 +710,28 @@ def export_analysis_to_pdf(
             ("Comparison of patient groups - by age group", comparison_tables["by_age_group"]),
             ("Comparison of patient groups - by chest pain", comparison_tables["by_chest_pain"]),
             ("Comparison of patient groups - by exercise-induced angina", comparison_tables["by_exercise_induced_angina"]),
-            ("Comparison of patient groups - sex diagnosis distribution %", comparison_tables["sex_diagnosis_distribution_pct"]),
-            ("Comparison of patient groups - age group diagnosis distribution %", comparison_tables["age_group_diagnosis_distribution_pct"]),
-            ("Comparison of patient groups - chest pain diagnosis distribution %", comparison_tables["chest_pain_diagnosis_distribution_pct"]),
-            ("Comparison of patient groups - exercise angina disease distribution %", comparison_tables["exercise_angina_disease_distribution_pct"]),
             ("Diagnosis distribution (multiclass)", diagnosis_tables["multiclass"]),
             ("Diagnosis distribution (binary)", diagnosis_tables["binary"]),
         ]
-        for title, table_df in table_sections:
-            _render_table_page(title, table_df, landscape=True)
+        per_page = 3
+        for page_start in range(0, len(table_sections), per_page):
+            page_sections = table_sections[page_start: page_start + per_page]
+            fig, axes = plt.subplots(per_page, 1, figsize=(8.27, 11.69))
+            if per_page == 1:
+                axes = [axes]
+            fig.suptitle("Comparison of patient groups", fontsize=13, y=0.985)
+            for idx, axis in enumerate(axes):
+                if idx < len(page_sections):
+                    title, table_df = page_sections[idx]
+                    _render_table_on_axis(axis, title, table_df)
+                else:
+                    axis.axis("off")
+            fig.tight_layout(rect=[0.03, 0.02, 0.97, 0.97])
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
 
-        fig, axes = plt.subplots(3, 2, figsize=(11.69, 14))
-        fig.suptitle("Visualization section - six charts (two per line)", fontsize=15, y=0.995)
+        fig, axes = plt.subplots(3, 2, figsize=(8.27, 11.69))
+        fig.suptitle("Visualization section", fontsize=15, y=0.995)
 
         axes[0, 0].hist(filtered_df["age"], bins=15, color="#4C78A8", edgecolor="white")
         axes[0, 0].set_title("Age distribution")
